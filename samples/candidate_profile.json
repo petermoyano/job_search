@@ -1,0 +1,27 @@
+{
+  "name": "Personal AI Engineer Profile",
+  "target_roles": [
+    "AI Engineer",
+    "Full-stack AI Engineer",
+    "Applied AI Engineer",
+    "LLM Engineer",
+    "AI Product Engineer"
+  ],
+  "preferred_locations": ["Remote", "United States", "LATAM"],
+  "work_modalities": ["remote", "hybrid"],
+  "seniority": "senior",
+  "technical_skills": ["Python", "TypeScript", "Next.js", "React", "Node.js", "PostgreSQL", "FastAPI"],
+  "ai_skills": ["LangChain", "LangGraph", "LlamaIndex", "RAG", "Agents", "Tool calling", "Function calling", "Ollama", "Hugging Face"],
+  "languages": ["English", "Spanish"],
+  "deal_breakers": ["staffing", "hidden_client", "third_party_vendor", "more_than_4_interview_stages", "role_not_involving_ai_engineering"],
+  "scoring_weights": {
+    "directness": 0.25,
+    "product_ownership": 0.2,
+    "technical_fit": 0.25,
+    "ai_depth": 0.2,
+    "process_safety": 0.1
+  },
+  "preferred_company_types": ["product_company", "saas", "ai_product"],
+  "negative_company_types": ["staffing", "outsourcing", "consulting"]
+}
+

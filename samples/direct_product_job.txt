@@ -1,0 +1,18 @@
+Company: Acme AI
+Role: AI Product Engineer
+Location: Remote
+
+We are hiring directly for our product engineering team. You will build AI product features for our own SaaS platform and work with the Head of Engineering.
+
+Responsibilities:
+- Build RAG workflows with Python, PostgreSQL, embeddings, LangGraph, and agents.
+- Own customer-facing AI features from prototype through production.
+- Add LLM evaluation and observability for model quality.
+
+Interview process:
+- Hiring manager call
+- Technical discussion with the product team
+- Final chat
+
+Salary range: USD 150,000 - 180,000.
+
