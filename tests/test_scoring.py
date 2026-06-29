@@ -3,10 +3,16 @@ from app.services.scoring import score_job
 
 
 class Profile:
-    technical_skills = ["Python", "TypeScript", "PostgreSQL", "LangChain", "RAG"]
-    ai_skills = ["Agents", "Tool calling", "Embeddings"]
-    scoring_weights = {}
-    deal_breakers = ["staffing", "hidden_client", "no_salary_range"]
+    technical_skills: list[str] = [
+        "Python",
+        "TypeScript",
+        "PostgreSQL",
+        "LangChain",
+        "RAG",
+    ]
+    ai_skills: list[str] = ["Agents", "Tool calling", "Embeddings"]
+    scoring_weights: dict[str, float] = {}
+    deal_breakers: list[str] = ["staffing", "hidden_client", "no_salary_range"]
 
 
 def test_staffing_language_triggers_configured_deal_breaker() -> None:

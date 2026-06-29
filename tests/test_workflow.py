@@ -2,10 +2,10 @@ from app.graph.workflow import run_job_analysis_workflow
 
 
 class Profile:
-    technical_skills = ["Python", "PostgreSQL", "LangGraph"]
-    ai_skills = ["RAG", "Agents"]
-    scoring_weights = {}
-    deal_breakers = []
+    technical_skills: list[str] = ["Python", "PostgreSQL", "LangGraph"]
+    ai_skills: list[str] = ["RAG", "Agents"]
+    scoring_weights: dict[str, float] = {}
+    deal_breakers: list[str] = []
 
 
 def test_job_analysis_workflow_returns_auditable_state() -> None:

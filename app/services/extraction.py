@@ -119,7 +119,9 @@ def _try_extract_profile_with_llm(raw_text: str) -> StructuredCandidateProfile |
         LLMProfileOutput
     )
     result = model.invoke(prompt)
-    return StructuredCandidateProfile.model_validate(result.model_dump())
+    if isinstance(result, BaseModel):
+        return StructuredCandidateProfile.model_validate(result.model_dump())
+    return StructuredCandidateProfile.model_validate(result)
 
 
 def _extract_candidate_profile_deterministic(
