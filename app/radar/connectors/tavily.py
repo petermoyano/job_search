@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -10,6 +11,7 @@ from app.radar.models import DiscoverySourceKind, RawDiscovery, SearchProfile
 
 
 TAVILY_SEARCH_URL = "https://api.tavily.com/search"
+LOGGER = logging.getLogger(__name__)
 
 
 class TavilyConnector(DiscoveryConnector):
@@ -24,9 +26,16 @@ class TavilyConnector(DiscoveryConnector):
 
         discoveries: list[RawDiscovery] = []
         per_query_limit = min(profile.max_results_per_query, max(1, limit))
-        for query in profile.queries:
+        for index, query in enumerate(profile.queries, start=1):
             if len(discoveries) >= limit:
                 break
+            LOGGER.info(
+                "Tavily query %s/%s: max_results=%s query=%r",
+                index,
+                len(profile.queries),
+                per_query_limit,
+                query.text,
+            )
             payload = {
                 "api_key": self.api_key,
                 "query": query.text,
@@ -35,7 +44,9 @@ class TavilyConnector(DiscoveryConnector):
                 "include_raw_content": True,
             }
             data = _post_json(TAVILY_SEARCH_URL, payload)
-            for item in data.get("results", []):
+            results = data.get("results", [])
+            LOGGER.info("Tavily query returned %s result(s)", len(results))
+            for item in results:
                 url = item.get("url")
                 if not url:
                     continue

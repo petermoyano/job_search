@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import json
+import logging
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import urlopen
 
 from app.radar.connectors.base import DiscoveryConnector
 from app.radar.models import DiscoverySourceKind, RawDiscovery, SearchProfile
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class GreenhouseConnector(DiscoveryConnector):
@@ -20,12 +24,17 @@ class GreenhouseConnector(DiscoveryConnector):
         for board_token in self.board_tokens:
             if len(discoveries) >= limit:
                 break
+            LOGGER.info("Fetching Greenhouse board=%s", board_token)
             url = (
                 "https://boards-api.greenhouse.io/v1/boards/"
                 f"{quote(board_token)}/jobs?content=true"
             )
             data = _get_json(url)
-            for job in data.get("jobs", []):
+            jobs = data.get("jobs", [])
+            LOGGER.info(
+                "Greenhouse board=%s returned %s job(s)", board_token, len(jobs)
+            )
+            for job in jobs:
                 absolute_url = job.get("absolute_url")
                 if not absolute_url:
                     continue

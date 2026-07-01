@@ -22,6 +22,10 @@ Run the sample pipeline:
 uv run python -m app.radar
 ```
 
+The command logs progress to stderr by default. Use `--log-level DEBUG`,
+`--log-level INFO`, `--log-level WARNING`, or `--log-level ERROR` to control
+how much progress detail is shown.
+
 Print full JSON:
 
 ```bash

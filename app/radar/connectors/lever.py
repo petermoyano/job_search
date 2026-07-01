@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import json
+import logging
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import urlopen
 
 from app.radar.connectors.base import DiscoveryConnector
 from app.radar.models import DiscoverySourceKind, RawDiscovery, SearchProfile
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class LeverConnector(DiscoveryConnector):
@@ -20,8 +24,10 @@ class LeverConnector(DiscoveryConnector):
         for company_site in self.company_sites:
             if len(discoveries) >= limit:
                 break
+            LOGGER.info("Fetching Lever company=%s", company_site)
             url = f"https://api.lever.co/v0/postings/{quote(company_site)}?mode=json"
             data = _get_json(url)
+            LOGGER.info("Lever company=%s returned %s posting(s)", company_site, len(data))
             for posting in data:
                 hosted_url = posting.get("hostedUrl") or posting.get("applyUrl")
                 if not hosted_url:

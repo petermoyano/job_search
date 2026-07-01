@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import logging
+
 from app.radar.connectors.base import DiscoveryConnector
 from app.radar.models import DiscoverySourceKind, RawDiscovery, SearchProfile
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class SampleConnector(DiscoveryConnector):
@@ -36,5 +41,6 @@ class SampleConnector(DiscoveryConnector):
                 external_id="sample-reject",
             ),
         ]
+        LOGGER.info("Loaded %s sample discovery item(s)", len(samples))
         return samples[:limit]
 

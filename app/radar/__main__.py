@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 from typing import Sequence
 
 from app.radar.connectors.base import DiscoveryConnector
@@ -11,6 +12,9 @@ from app.radar.connectors.sample import SampleConnector
 from app.radar.connectors.tavily import TavilyConnector
 from app.radar.discovery import run_discovery
 from app.radar.profiles import PROFILES, get_profile
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -46,7 +50,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="Print the full result as JSON instead of a compact table.",
     )
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        help="Logging detail for the discovery run.",
+    )
     args = parser.parse_args(argv)
+    _configure_logging(args.log_level)
 
     profile = get_profile(args.profile)
     connectors = _build_connectors(
@@ -54,13 +65,34 @@ def main(argv: Sequence[str] | None = None) -> int:
         greenhouse_boards=args.greenhouse_board,
         lever_companies=args.lever_company,
     )
+    LOGGER.info(
+        "Starting radar run: profile=%s sources=%s limit=%s",
+        profile.id,
+        ", ".join(connector.name for connector in connectors),
+        args.limit,
+    )
     result = run_discovery(profile=profile, connectors=connectors, limit=args.limit)
+    LOGGER.info(
+        "Finished radar run: raw=%s unique=%s promising=%s maybe=%s reject=%s",
+        result.total_raw,
+        result.total_unique,
+        sum(1 for item in result.items if item.classification.verdict == "promising"),
+        sum(1 for item in result.items if item.classification.verdict == "maybe"),
+        sum(1 for item in result.items if item.classification.verdict == "reject"),
+    )
 
     if args.json:
         print(result.model_dump_json(indent=2))
     else:
         _print_summary(result)
     return 0
+
+
+def _configure_logging(level: str) -> None:
+    logging.basicConfig(
+        level=getattr(logging, level),
+        format="%(levelname)s %(name)s: %(message)s",
+    )
 
 
 def _build_connectors(
