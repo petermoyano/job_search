@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import json
-import os
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from app.core.config import get_settings
 from app.radar.connectors.base import DiscoveryConnector
 from app.radar.models import DiscoverySourceKind, RawDiscovery, SearchProfile
 
@@ -16,7 +16,7 @@ class TavilyConnector(DiscoveryConnector):
     name = "tavily"
 
     def __init__(self, api_key: str | None = None) -> None:
-        self.api_key = api_key or os.getenv("TAVILY_API_KEY")
+        self.api_key = api_key or get_settings().tavily_api_key
 
     def discover(self, profile: SearchProfile, limit: int) -> list[RawDiscovery]:
         if not self.api_key:

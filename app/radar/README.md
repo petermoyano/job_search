@@ -28,7 +28,7 @@ Print full JSON:
 uv run python -m app.radar --json
 ```
 
-Use Tavily after setting `TAVILY_API_KEY`:
+Use Tavily after setting TAVILY_API_KEY in .env or exporting it in your shell:
 
 ```bash
 uv run python -m app.radar --source tavily --limit 25
