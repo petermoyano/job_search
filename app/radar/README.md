@@ -5,9 +5,10 @@ project. The existing backend is good at analyzing a job lead once we already
 have it. This module focuses on the missing earlier step: finding likely direct
 product opportunities before they enter the main analysis workflow.
 
-The initial target profile is `peter-us-remote-direct-product`: remote,
-US-compatible, direct employer roles at product companies, especially backend,
-full-stack, platform, product engineering, and AI roles.
+The initial target profile is `peter-latam-remote-ai-fullstack-product`:
+fully remote, LATAM-friendly or globally remote direct employer roles at product
+companies, especially AI Engineer, Applied AI, full-stack product engineering,
+and ownership-heavy roles.
 
 ## Current Scope
 
@@ -53,7 +54,8 @@ candidates, classifications, and discovery run results.
 
 `profiles.py`
 : Saved radar profiles. The first profile encodes Peter's current search:
-remote US-compatible direct product roles.
+AI/full-stack direct product roles that are fully remote and open to LATAM,
+Argentina, Americas, global remote, or anywhere candidates.
 
 `connectors/`
 : Source-specific discovery connectors. The module currently includes:
@@ -108,7 +110,7 @@ review inbox.
 4. Compare deterministic classification against your actual judgment.
 5. Add a Bedrock classifier that returns structured evidence for:
    - direct employer vs staffing/intermediary
-   - remote US compatibility
+   - LATAM/global remote compatibility
    - product company fit
    - role fit
 6. Persist discoveries and expose review endpoints:

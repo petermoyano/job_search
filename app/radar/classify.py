@@ -32,7 +32,7 @@ PRODUCT_HINTS = [
     "users",
 ]
 
-REMOTE_US_HINTS = [
+REMOTE_FRIENDLY_HINTS = [
     "remote - us",
     "remote us",
     "remote, us",
@@ -42,6 +42,14 @@ REMOTE_US_HINTS = [
     "us remote",
     "americas",
     "north america",
+    "latam",
+    "latin america",
+    "argentina",
+    "global remote",
+    "remote worldwide",
+    "work from anywhere",
+    "anywhere in the world",
+    "us time zones",
 ]
 
 STAFFING_HINTS = [
@@ -79,9 +87,9 @@ def classify_candidate(
         score += 15
         positive.append("appears on a company or ATS-hosted careers page")
 
-    if _contains_any(text, REMOTE_US_HINTS):
+    if _contains_any(text, REMOTE_FRIENDLY_HINTS):
         score += 20
-        positive.append("mentions US-compatible remote work")
+        positive.append("mentions LATAM, Americas, global, or US-compatible remote work")
     elif "remote" in text:
         score += 10
         positive.append("mentions remote work")
@@ -120,7 +128,7 @@ def classify_candidate(
         score -= 35
         negative.append("contains staffing, agency, or client-intermediary signals")
 
-    if _contains_any(text, LOCATION_BLOCKERS) and not _contains_any(text, REMOTE_US_HINTS):
+    if _contains_any(text, LOCATION_BLOCKERS) and not _contains_any(text, REMOTE_FRIENDLY_HINTS):
         score -= 25
         negative.append("may be onsite, hybrid, or location-restricted")
 

@@ -21,7 +21,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run the job radar discovery pipeline.")
     parser.add_argument(
         "--profile",
-        default="peter-us-remote-direct-product",
+        default="peter-latam-remote-ai-fullstack-product",
         choices=sorted(PROFILES),
         help="Radar search profile to use.",
     )

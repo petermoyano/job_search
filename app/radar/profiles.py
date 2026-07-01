@@ -3,78 +3,126 @@ from __future__ import annotations
 from app.radar.models import SearchProfile, SearchQuery
 
 
-PETER_US_REMOTE_DIRECT_PRODUCT = SearchProfile(
-    id="peter-us-remote-direct-product",
-    name="Peter - US Remote Direct Product",
+PETER_REMOTE_AI_FULLSTACK_PRODUCT = SearchProfile(
+    id="peter-latam-remote-ai-fullstack-product",
+    name="Peter - Remote AI / Full-Stack Product",
     description=(
-        "Find remote US-compatible direct employer roles at product companies, "
-        "with extra interest in backend, full-stack, platform, product, and AI work."
+        "Find fully remote, LATAM-friendly or globally remote direct employer roles "
+        "with US-market compensation potential. Prioritize AI Engineer, Applied AI, "
+        "full-stack product engineering, and ownership-heavy roles over backend-only work."
     ),
     target_roles=[
-        "Backend Engineer",
-        "Full Stack Engineer",
-        "Software Engineer",
         "AI Engineer",
+        "Applied AI Engineer",
+        "Full-Stack AI Engineer",
+        "Full Stack Engineer",
+        "Full-stack Developer",
+        "AI Product Engineer",
         "Product Engineer",
-        "Platform Engineer",
+        "LLM Engineer",
+        "RAG Engineer",
+        "Software Engineer, AI",
+        "Founding Engineer",
+        "Forward Deployed Engineer",
     ],
     location_policy=(
-        "Remote role, United States, US time zones, Americas-friendly, or globally "
-        "remote with explicit US compatibility."
+        "Fully remote role that is open to Argentina, LATAM, Americas, global remote, "
+        "or anywhere candidates. US-based companies are preferred for compensation, "
+        "but the role should not require US residency."
     ),
     required_terms=["remote"],
     preferred_terms=[
-        "United States",
-        "US",
+        "LATAM",
+        "Latin America",
+        "Argentina",
         "Americas",
-        "product engineering",
-        "SaaS",
-        "platform",
-        "AI",
+        "global remote",
+        "anywhere",
+        "worldwide",
+        "US time zones",
+        "AI Engineer",
+        "Applied AI",
         "LLM",
         "RAG",
         "agents",
+        "function calling",
+        "tool calling",
+        "LangChain",
+        "LlamaIndex",
+        "OpenAI",
+        "Hugging Face",
+        "fine-tuning",
+        "Next.js",
+        "React",
+        "Node.js",
+        "TypeScript",
+        "Python",
+        "product engineering",
+        "full ownership",
+        "end-to-end",
+        "0 to 1",
+        "SaaS",
     ],
     reject_terms=[
         "staff augmentation",
         "staffing",
         "agency",
-        "consulting",
         "hidden client",
         "confidential client",
         "onsite",
+        "on-site",
         "hybrid",
         "clearance required",
         "C2C",
+        "US only",
+        "U.S. only",
+        "United States only",
+        "must be based in the US",
+        "must be located in the US",
+        "must reside in the US",
+        "US work authorization required",
+        "requires US work authorization",
+        "sponsorship not available",
     ],
     queries=[
         SearchQuery(
-            text='site:boards.greenhouse.io "Backend Engineer" "Remote" "United States"',
-            reason="Greenhouse direct company boards for backend roles.",
+            text='site:jobs.lever.co "AI Engineer" "Remote" "LATAM"',
+            reason="Lever roles explicitly mentioning AI, remote work, and LATAM.",
         ),
         SearchQuery(
-            text='site:jobs.lever.co "Software Engineer" "Remote" "United States"',
-            reason="Lever direct company boards for software engineering roles.",
+            text='site:boards.greenhouse.io "Applied AI Engineer" "Remote" "Americas"',
+            reason="Greenhouse roles for applied AI that are Americas-friendly.",
         ),
         SearchQuery(
-            text='site:ashbyhq.com "Product Engineer" "Remote" "United States"',
-            reason="Ashby-hosted direct company boards for product engineering roles.",
+            text='site:jobs.ashbyhq.com "Full-Stack AI Engineer" "Remote"',
+            reason="Ashby roles combining full-stack product work and AI engineering.",
         ),
         SearchQuery(
-            text='"AI Engineer" "Remote" "United States" "careers"',
-            reason="General web discovery for AI roles on company career pages.",
+            text='"AI Product Engineer" "Remote" "Latin America" "careers"',
+            reason="General web discovery for AI product roles open to Latin America.",
         ),
         SearchQuery(
-            text='"Backend Engineer" "Remote - US" "careers"',
-            reason="General web discovery for US-remote backend roles.",
+            text='"Full Stack Engineer" "AI" "Remote" "Americas" "careers"',
+            reason="Full-stack AI/product roles compatible with Americas time zones.",
+        ),
+        SearchQuery(
+            text='"Founding Engineer" "AI" "Remote" "LATAM"',
+            reason="Ownership-heavy early product engineering roles with AI focus.",
+        ),
+        SearchQuery(
+            text='"LLM Engineer" "Remote" "Argentina"',
+            reason="LLM roles explicitly open to Argentina-based candidates.",
         ),
     ],
-    max_results_per_query=10,
+    max_results_per_query=8,
 )
+
+# Backwards-compatible alias for imports/tests that still use the original name.
+PETER_US_REMOTE_DIRECT_PRODUCT = PETER_REMOTE_AI_FULLSTACK_PRODUCT
 
 
 PROFILES = {
-    PETER_US_REMOTE_DIRECT_PRODUCT.id: PETER_US_REMOTE_DIRECT_PRODUCT,
+    PETER_REMOTE_AI_FULLSTACK_PRODUCT.id: PETER_REMOTE_AI_FULLSTACK_PRODUCT,
 }
 
 
@@ -84,4 +132,3 @@ def get_profile(profile_id: str) -> SearchProfile:
     except KeyError as exc:
         supported = ", ".join(sorted(PROFILES))
         raise ValueError(f"Unknown radar profile '{profile_id}'. Supported: {supported}") from exc
-
