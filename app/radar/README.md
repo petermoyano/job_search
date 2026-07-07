@@ -5,10 +5,13 @@ project. The existing backend is good at analyzing a job lead once we already
 have it. This module focuses on the missing earlier step: finding likely direct
 product opportunities before they enter the main analysis workflow.
 
-The initial target profile is `peter-latam-remote-ai-fullstack-product`:
-fully remote, LATAM-friendly or globally remote direct employer roles at product
-companies, especially AI Engineer, Applied AI, full-stack product engineering,
-and ownership-heavy roles.
+The radar now supports multiple search profiles. The default profile remains
+`peter-latam-remote-ai-fullstack-product`: fully remote, LATAM-friendly or
+globally remote direct employer roles at product companies, especially AI
+Engineer, Applied AI, full-stack product engineering, and ownership-heavy roles.
+It also includes two Romina profiles: `romina-remote-spanish-hr` for remote
+Spanish-language HR roles, and `romina-mendoza-hr-onsite-hybrid` for Mendoza
+or Gran Mendoza onsite/hybrid HR roles.
 
 ## Current Scope
 
@@ -37,6 +40,8 @@ Use Tavily after setting TAVILY_API_KEY in .env or exporting it in your shell:
 
 ```bash
 uv run python -m app.radar --source tavily --limit 25
+uv run python -m app.radar --profile romina-remote-spanish-hr --source tavily --limit 25
+uv run python -m app.radar --profile romina-mendoza-hr-onsite-hybrid --source tavily --limit 25
 ```
 
 Use known ATS boards directly:
@@ -53,9 +58,10 @@ uv run python -m app.radar --source lever --lever-company exampleco
 candidates, classifications, and discovery run results.
 
 `profiles.py`
-: Saved radar profiles. The first profile encodes Peter's current search:
-AI/full-stack direct product roles that are fully remote and open to LATAM,
-Argentina, Americas, global remote, or anywhere candidates.
+: Saved radar profiles for each candidate/search intent. Peter's profile
+targets remote AI/full-stack product roles. Romina has one remote Spanish HR
+profile and one Mendoza onsite/hybrid HR profile. Her long list of job sites
+is stored as `source_references` metadata for future source work, not scraped.
 
 `connectors/`
 : Source-specific discovery connectors. The module currently includes:
@@ -73,11 +79,11 @@ and canonicalizes URLs for deduplication.
 : Removes repeated candidates, primarily by canonical URL.
 
 `classify.py`
-: A deterministic first-pass classifier. It looks for direct employer signals,
-US-compatible remote signals, product-company signals, target role matches, and
-reject terms such as staffing, hidden clients, consulting, onsite, or hybrid
-constraints. This is not meant to replace Bedrock; it is a cheap filter before
-LLM classification.
+: A deterministic first-pass classifier. It keeps generic source quality
+signals in code, then applies profile-specific positive and negative scoring
+groups. This lets Peter's AI/product search and Romina's Spanish HR searches
+use the same pipeline with different fit criteria. This is not meant to
+replace Bedrock; it is a cheap filter before LLM classification.
 
 `discovery.py`
 : Orchestrates the full pipeline:

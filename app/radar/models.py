@@ -25,15 +25,26 @@ class SearchQuery(BaseModel):
     reason: str | None = None
 
 
+class ScoringGroup(BaseModel):
+    label: str
+    terms: list[str] = Field(default_factory=list)
+    points: int = 0
+
+
 class SearchProfile(BaseModel):
     id: str
     name: str
     description: str
+    owner_id: str | None = None
+    owner_name: str | None = None
     target_roles: list[str] = Field(default_factory=list)
     location_policy: str
     required_terms: list[str] = Field(default_factory=list)
     preferred_terms: list[str] = Field(default_factory=list)
     reject_terms: list[str] = Field(default_factory=list)
+    positive_scoring_groups: list[ScoringGroup] = Field(default_factory=list)
+    negative_scoring_groups: list[ScoringGroup] = Field(default_factory=list)
+    source_references: list[HttpUrl] = Field(default_factory=list)
     queries: list[SearchQuery] = Field(default_factory=list)
     max_results_per_query: int = 10
 
@@ -84,4 +95,3 @@ class DiscoveryRunResult(BaseModel):
     total_raw: int
     total_unique: int
     items: list[ClassifiedDiscovery]
-
