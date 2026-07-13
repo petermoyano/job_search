@@ -51,6 +51,27 @@ uv run python -m app.radar --source greenhouse --greenhouse-board exampleco
 uv run python -m app.radar --source lever --lever-company exampleco
 ```
 
+## REST API
+
+The FastAPI app exposes the radar for the frontend:
+
+```bash
+GET /radar/profiles
+POST /radar/runs
+```
+
+Example run request:
+
+```json
+{
+  "profile_id": "romina-mendoza-hr-onsite-hybrid",
+  "source": "tavily",
+  "limit": 25
+}
+```
+
+Use `source: "sample"` for local UI testing without calling Tavily.
+
 ## Structure
 
 `models.py`

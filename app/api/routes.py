@@ -6,6 +6,11 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.db.session import get_db
 from app.graph.workflow import run_job_analysis_workflow
+from app.radar.connectors.sample import SampleConnector
+from app.radar.connectors.tavily import TavilyConnector
+from app.radar.discovery import run_discovery
+from app.radar.models import DiscoveryRunResult, SearchProfile
+from app.radar.profiles import PROFILES, get_profile as get_radar_profile
 from app.models import (
     CandidateCV,
     CandidateProfile,
@@ -31,6 +36,7 @@ from app.schemas import (
     JobAnalysisRequest,
     JobLeadCreate,
     JobLeadRead,
+    RadarRunRequest,
     ScoringConfigRead,
     StructuredCandidateProfile,
 )
@@ -43,6 +49,25 @@ router = APIRouter()
 @router.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@router.get("/radar/profiles", response_model=list[SearchProfile])
+def list_radar_profiles() -> list[SearchProfile]:
+    return list(PROFILES.values())
+
+
+@router.post("/radar/runs", response_model=DiscoveryRunResult)
+def run_radar(payload: RadarRunRequest) -> DiscoveryRunResult:
+    try:
+        profile = get_radar_profile(payload.profile_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    connectors = [_radar_connector_for(payload.source)]
+    try:
+        return run_discovery(profile=profile, connectors=connectors, limit=payload.limit)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @router.post(
@@ -221,6 +246,14 @@ def get_scoring_config() -> ScoringConfigRead:
             "<50": "Low priority unless new evidence appears",
         },
     )
+
+
+def _radar_connector_for(source: str):
+    if source == "sample":
+        return SampleConnector()
+    if source == "tavily":
+        return TavilyConnector()
+    raise HTTPException(status_code=400, detail=f"Unsupported radar source: {source}")
 
 
 def _create_job_lead(db: Session, payload: JobLeadCreate) -> JobLead:

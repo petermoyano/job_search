@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -196,6 +196,12 @@ class HumanDecisionRead(BaseModel):
     notes: str | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class RadarRunRequest(BaseModel):
+    profile_id: str
+    source: Literal["sample", "tavily"] = "tavily"
+    limit: int = Field(default=25, ge=1, le=50)
 
 
 class ScoringConfigRead(BaseModel):

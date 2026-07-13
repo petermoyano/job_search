@@ -15,6 +15,12 @@ class Settings(BaseSettings):
     openai_api_key: str | None = Field(default=None, repr=False)
     tavily_api_key: str | None = Field(default=None, repr=False)
     llm_model: str = "gpt-4.1-mini"
+    cors_origins: list[str] = Field(
+        default_factory=lambda: [
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+        ]
+    )
 
 
 @lru_cache
