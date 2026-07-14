@@ -56,6 +56,13 @@ def run_discovery(
             item.candidate.title or "",
         )
     )
+    counts = _classification_counts(classified)
+    LOGGER.info(
+        "Classification summary: promising=%s maybe=%s reject=%s",
+        counts["promising"],
+        counts["maybe"],
+        counts["reject"],
+    )
     LOGGER.info("Sorted classified discoveries by verdict and score")
     return DiscoveryRunResult(
         profile_id=profile.id,
@@ -64,3 +71,11 @@ def run_discovery(
         items=classified,
     )
 
+
+
+
+def _classification_counts(items: list[ClassifiedDiscovery]) -> dict[str, int]:
+    counts = {"promising": 0, "maybe": 0, "reject": 0}
+    for item in items:
+        counts[item.classification.verdict.value] += 1
+    return counts

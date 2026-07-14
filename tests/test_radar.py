@@ -1,5 +1,6 @@
 from app.radar.classify import classify_candidate
 from app.radar.connectors.sample import SampleConnector
+from app.radar.connectors.tavily import TavilyConnector
 from app.radar.discovery import run_discovery
 from app.radar.models import DiscoverySourceKind, RadarVerdict, RawDiscovery
 from app.radar.normalize import canonicalize_url, normalize_discovery
@@ -98,6 +99,52 @@ def test_romina_mendoza_buenos_aires_or_relocation_role_is_rejected() -> None:
     assert any(
         "not local to Mendoza" in signal for signal in classification.negative_signals
     )
+
+
+
+def test_tavily_connector_normalizes_relative_goto_urls(monkeypatch) -> None:
+    def fake_post_json(_url, _payload):
+        return {
+            "results": [
+                {
+                    "title": "Redirected HR role",
+                    "url": "/goto?url=https%3A%2F%2Fexample.com%2Fjobs%2Fhr-role",
+                    "content": "Recursos Humanos Mendoza presencial",
+                }
+            ]
+        }
+
+    monkeypatch.setattr("app.radar.connectors.tavily._post_json", fake_post_json)
+
+    discoveries = TavilyConnector(api_key="test-key").discover(
+        ROMINA_MENDOZA_HR_ONSITE_HYBRID, limit=1
+    )
+
+    assert len(discoveries) == 1
+    assert str(discoveries[0].url) == "https://example.com/jobs/hr-role"
+
+
+def test_tavily_connector_skips_invalid_relative_urls(monkeypatch) -> None:
+    def fake_post_json(_url, _payload):
+        return {
+            "results": [
+                {"title": "Bad redirect", "url": "/goto?url=not-a-url"},
+                {
+                    "title": "Good result",
+                    "url": "https://example.com/jobs/good",
+                    "content": "Recursos Humanos Mendoza presencial",
+                },
+            ]
+        }
+
+    monkeypatch.setattr("app.radar.connectors.tavily._post_json", fake_post_json)
+
+    discoveries = TavilyConnector(api_key="test-key").discover(
+        ROMINA_MENDOZA_HR_ONSITE_HYBRID, limit=2
+    )
+
+    assert discoveries
+    assert all(str(item.url) == "https://example.com/jobs/good" for item in discoveries)
 
 
 def test_canonicalize_url_removes_tracking_params() -> None:

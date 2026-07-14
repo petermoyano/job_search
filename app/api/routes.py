@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session, selectinload
@@ -44,6 +45,7 @@ from app.services.extraction import extract_candidate_profile
 from app.services.scoring import DEFAULT_WEIGHTS, SUPPORTED_DEAL_BREAKERS
 
 router = APIRouter()
+LOGGER = logging.getLogger(__name__)
 
 
 @router.get("/health")
@@ -58,16 +60,55 @@ def list_radar_profiles() -> list[SearchProfile]:
 
 @router.post("/radar/runs", response_model=DiscoveryRunResult)
 def run_radar(payload: RadarRunRequest) -> DiscoveryRunResult:
+    LOGGER.info(
+        "Radar API request received: profile_id=%s source=%s limit=%s",
+        payload.profile_id,
+        payload.source,
+        payload.limit,
+    )
     try:
         profile = get_radar_profile(payload.profile_id)
     except ValueError as exc:
+        LOGGER.warning("Radar API request rejected: profile_id=%s", payload.profile_id)
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     connectors = [_radar_connector_for(payload.source)]
     try:
-        return run_discovery(profile=profile, connectors=connectors, limit=payload.limit)
+        result = run_discovery(profile=profile, connectors=connectors, limit=payload.limit)
     except RuntimeError as exc:
+        LOGGER.exception(
+            "Radar API run failed: profile_id=%s source=%s", profile.id, payload.source
+        )
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    verdict_counts = _radar_verdict_counts(result)
+    LOGGER.info(
+        "Radar API run completed: profile_id=%s source=%s raw=%s unique=%s items=%s "
+        "promising=%s maybe=%s reject=%s",
+        result.profile_id,
+        payload.source,
+        result.total_raw,
+        result.total_unique,
+        len(result.items),
+        verdict_counts["promising"],
+        verdict_counts["maybe"],
+        verdict_counts["reject"],
+    )
+    if result.items:
+        LOGGER.info(
+            "Radar API sample results: %s",
+            " | ".join(
+                (item.candidate.title or "(untitled)")[:80] for item in result.items[:3]
+            ),
+        )
+    else:
+        LOGGER.warning(
+            "Radar API returned zero items: profile_id=%s source=%s. "
+            "Check connector logs for provider result and skipped URL counts.",
+            result.profile_id,
+            payload.source,
+        )
+    return result
 
 
 @router.post(
@@ -246,6 +287,13 @@ def get_scoring_config() -> ScoringConfigRead:
             "<50": "Low priority unless new evidence appears",
         },
     )
+
+
+def _radar_verdict_counts(result: DiscoveryRunResult) -> dict[str, int]:
+    counts = {"promising": 0, "maybe": 0, "reject": 0}
+    for item in result.items:
+        counts[item.classification.verdict.value] += 1
+    return counts
 
 
 def _radar_connector_for(source: str):

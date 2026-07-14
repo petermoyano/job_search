@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -7,6 +8,13 @@ from app.api.routes import router
 from app.core.config import get_settings
 from app.db.base import Base
 from app.db.session import engine
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)s %(name)s: %(message)s",
+)
+logging.getLogger("app").setLevel(logging.INFO)
 
 
 @asynccontextmanager
