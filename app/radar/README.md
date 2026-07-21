@@ -81,14 +81,16 @@ candidates, classifications, and discovery run results.
 `profiles.py`
 : Saved radar profiles for each candidate/search intent. Peter's profile
 targets remote AI/full-stack product roles. Romina has one remote Spanish HR
-profile and one Mendoza onsite/hybrid HR profile. Her long list of job sites
-is stored as `source_references` metadata for future source work, not scraped.
+profile and one Mendoza onsite/hybrid HR profile. Her Tier-1 source domains
+drive curated Tavily searches; the larger `source_references` list remains
+metadata for evaluating future dedicated connectors.
 
 `connectors/`
 : Source-specific discovery connectors. The module currently includes:
 
 - `sample.py`: local deterministic examples for development and tests.
-- `tavily.py`: web search connector for query-based discovery.
+- `tavily.py`: web search connector with an 80% Tier-1 domain-constrained
+  lane and a 20% exploratory lane that excludes known irrelevant domains.
 - `greenhouse.py`: direct Greenhouse job board connector.
 - `lever.py`: direct Lever postings connector.
 
@@ -98,6 +100,11 @@ and canonicalizes URLs for deduplication.
 
 `dedupe.py`
 : Removes repeated candidates, primarily by canonical URL.
+
+`validity.py`
+: Classifies page type before fit scoring. Articles, organization homepages,
+search/listing pages, discussions, expired jobs, and unverified pages do not
+enter the fit-scoring stage.
 
 `classify.py`
 : A deterministic first-pass classifier. It keeps generic source quality
@@ -110,7 +117,7 @@ replace Bedrock; it is a cheap filter before LLM classification.
 : Orchestrates the full pipeline:
 
 ```text
-connectors -> raw discoveries -> normalization -> dedupe -> classification
+connectors -> normalization -> dedupe -> page validity -> fit classification
 ```
 
 `__main__.py`

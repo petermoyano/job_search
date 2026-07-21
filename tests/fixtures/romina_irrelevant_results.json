@@ -1,0 +1,50 @@
+[
+  {
+    "url": "https://en.wikipedia.org/wiki/Human_resources",
+    "title": "Human resources",
+    "raw_text": "Human resources includes recruitment, selection, onboarding and remote-work policies.",
+    "expected_page_type": "informational"
+  },
+  {
+    "url": "https://www.adp.com/resources/articles-and-insights/articles/w/what-is-human-resources-hr.aspx",
+    "title": "What is HR? Definition, core functions and business impact",
+    "raw_text": "An article about HR, recruiting, employee experience and onboarding.",
+    "expected_page_type": "informational"
+  },
+  {
+    "url": "https://www.glassdoor.com.ar/Empleo/it-recruiter-empleos-SRCH_KO0,12.htm",
+    "title": "124 empleos de IT Recruiter en Argentina",
+    "raw_text": "Search results for recruiter IT roles, including remote vacancies in Argentina.",
+    "expected_page_type": "job_listing"
+  },
+  {
+    "url": "https://www.calhr.ca.gov/",
+    "title": "CalHR Website",
+    "raw_text": "Human resources information, careers, recruitment and employee services.",
+    "expected_page_type": "organization_page"
+  },
+  {
+    "url": "https://www.hrhouston.org/",
+    "title": "HR Houston",
+    "raw_text": "Professional HR association, events, recruiting resources and jobs.",
+    "expected_page_type": "organization_page"
+  },
+  {
+    "url": "https://www.hr.com/",
+    "title": "HR.com",
+    "raw_text": "Human resources community with recruiting, onboarding and remote-work content.",
+    "expected_page_type": "organization_page"
+  },
+  {
+    "url": "https://hrcalifornia.calchamber.com/",
+    "title": "HRCalifornia Overview",
+    "raw_text": "HR compliance, recruiting and employee management resources.",
+    "expected_page_type": "organization_page"
+  },
+  {
+    "url": "https://www.reddit.com/r/work/comments/1nf61ru/what_do_hr_actually_do",
+    "title": "What do HR actually do?",
+    "raw_text": "A discussion about recruiters, human resources and employee onboarding.",
+    "expected_page_type": "discussion"
+  }
+]

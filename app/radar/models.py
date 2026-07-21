@@ -20,6 +20,16 @@ class RadarVerdict(StrEnum):
     reject = "reject"
 
 
+class PageType(StrEnum):
+    job_posting = "job_posting"
+    job_listing = "job_listing"
+    informational = "informational"
+    organization_page = "organization_page"
+    discussion = "discussion"
+    expired = "expired"
+    unknown = "unknown"
+
+
 class SearchQuery(BaseModel):
     text: str
     reason: str | None = None
@@ -45,6 +55,8 @@ class SearchProfile(BaseModel):
     positive_scoring_groups: list[ScoringGroup] = Field(default_factory=list)
     negative_scoring_groups: list[ScoringGroup] = Field(default_factory=list)
     source_references: list[HttpUrl] = Field(default_factory=list)
+    preferred_source_domains: list[str] = Field(default_factory=list)
+    excluded_source_domains: list[str] = Field(default_factory=list)
     queries: list[SearchQuery] = Field(default_factory=list)
     max_results_per_query: int = 10
 
@@ -78,6 +90,8 @@ class NormalizedJobCandidate(BaseModel):
 class RadarClassification(BaseModel):
     verdict: RadarVerdict
     score: int = Field(ge=0, le=100)
+    page_type: PageType = PageType.unknown
+    is_job_posting: bool = False
     reasons: list[str] = Field(default_factory=list)
     positive_signals: list[str] = Field(default_factory=list)
     negative_signals: list[str] = Field(default_factory=list)

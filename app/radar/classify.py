@@ -4,11 +4,14 @@ import re
 
 from app.radar.models import (
     NormalizedJobCandidate,
+    PageType,
     RadarClassification,
     RadarVerdict,
     ScoringGroup,
     SearchProfile,
 )
+from app.radar.validity import classify_page_type, page_type_rejection_reason
+from app.services.text import normalize_for_matching
 
 
 DIRECT_SOURCE_HINTS = [
@@ -18,8 +21,6 @@ DIRECT_SOURCE_HINTS = [
     "smartrecruiters.com",
     "myworkdayjobs.com",
     "careers.",
-    "/careers",
-    "/jobs",
 ]
 
 
@@ -28,6 +29,19 @@ def classify_candidate(
 ) -> RadarClassification:
     text = candidate.searchable_text.lower()
     url = candidate.canonical_url.lower()
+    page_type = classify_page_type(candidate)
+    if page_type != PageType.job_posting:
+        reason = page_type_rejection_reason(page_type)
+        return RadarClassification(
+            verdict=RadarVerdict.reject,
+            score=0,
+            page_type=page_type,
+            is_job_posting=False,
+            reasons=[reason],
+            negative_signals=[reason],
+            needs_review=page_type == PageType.unknown,
+        )
+
     score = 35
     positive: list[str] = []
     negative: list[str] = []
@@ -46,16 +60,12 @@ def classify_candidate(
             f"{', '.join(profile.required_terms[:4])}"
         )
 
-    role_hits = [
-        role for role in profile.target_roles if _contains_phrase(text, role.lower())
-    ]
+    role_hits = _matching_terms(text, profile.target_roles)
     if role_hits:
         score += min(18, 6 * len(role_hits))
         positive.append(f"matches target role terms: {', '.join(role_hits[:3])}")
 
-    preferred_hits = [
-        term for term in profile.preferred_terms if _contains_phrase(text, term.lower())
-    ]
+    preferred_hits = _matching_terms(text, profile.preferred_terms)
     if preferred_hits:
         score += min(12, 3 * len(preferred_hits))
         positive.append(f"matches preferred terms: {', '.join(preferred_hits[:4])}")
@@ -66,11 +76,7 @@ def classify_candidate(
             score += max(0, group.points)
             positive.append(f"{group.label}: {', '.join(hits[:4])}")
 
-    reject_hits = [
-        term
-        for term in profile.reject_terms
-        if _contains_phrase(text, term.lower()) or _contains_phrase(url, term.lower())
-    ]
+    reject_hits = _matching_terms(f"{text}\n{url}", profile.reject_terms)
     if reject_hits:
         score -= min(60, 15 * len(reject_hits))
         negative.append(f"matches reject terms: {', '.join(reject_hits[:4])}")
@@ -87,6 +93,8 @@ def classify_candidate(
     return RadarClassification(
         verdict=verdict,
         score=bounded_score,
+        page_type=page_type,
+        is_job_posting=True,
         reasons=reasons,
         positive_signals=positive,
         negative_signals=negative,
@@ -124,11 +132,19 @@ def _reasons_for(
 
 
 def _group_hits(text: str, url: str, group: ScoringGroup) -> list[str]:
-    return [
-        term
-        for term in group.terms
-        if _contains_phrase(text, term.lower()) or _contains_phrase(url, term.lower())
-    ]
+    return _matching_terms(f"{text}\n{url}", group.terms)
+
+
+def _matching_terms(text: str, terms: list[str]) -> list[str]:
+    hits: list[str] = []
+    seen: set[str] = set()
+    for term in terms:
+        normalized_term = normalize_for_matching(term)
+        if normalized_term in seen or not _contains_phrase(text, term):
+            continue
+        seen.add(normalized_term)
+        hits.append(term)
+    return hits
 
 
 def _contains_any(text: str, terms: list[str]) -> bool:
@@ -136,5 +152,7 @@ def _contains_any(text: str, terms: list[str]) -> bool:
 
 
 def _contains_phrase(text: str, phrase: str) -> bool:
-    pattern = re.escape(phrase.lower()).replace(r"\ ", r"[\s\-]+")
-    return bool(re.search(rf"(?<!\w){pattern}(?!\w)", text.lower()))
+    normalized_text = normalize_for_matching(text)
+    normalized_phrase = normalize_for_matching(phrase)
+    pattern = re.escape(normalized_phrase).replace(r"\ ", r"[\s\-]+")
+    return bool(re.search(rf"(?<!\w){pattern}(?!\w)", normalized_text))

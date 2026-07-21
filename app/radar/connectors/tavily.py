@@ -1,18 +1,36 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import json
 import logging
+from math import ceil
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, unquote, urlsplit
 from urllib.request import Request, urlopen
 
 from app.core.config import get_settings
 from app.radar.connectors.base import DiscoveryConnector
-from app.radar.models import DiscoverySourceKind, RawDiscovery, SearchProfile
+from app.radar.models import (
+    DiscoverySourceKind,
+    RawDiscovery,
+    SearchProfile,
+    SearchQuery,
+)
 
 
 TAVILY_SEARCH_URL = "https://api.tavily.com/search"
 LOGGER = logging.getLogger(__name__)
+CURATED_RESULT_SHARE = 0.8
+DOMAIN_BATCH_SIZE = 5
+
+
+@dataclass(frozen=True)
+class _SearchRequest:
+    query: SearchQuery
+    max_results: int
+    lane: str
+    include_domains: tuple[str, ...] = ()
+    exclude_domains: tuple[str, ...] = ()
 
 
 class TavilyConnector(DiscoveryConnector):
@@ -29,14 +47,17 @@ class TavilyConnector(DiscoveryConnector):
         provider_results_total = 0
         accepted_total = 0
         skipped_invalid_total = 0
-        per_query_limit = min(profile.max_results_per_query, max(1, limit))
-        for index, query in enumerate(profile.queries, start=1):
+        search_plan = _build_search_plan(profile, limit)
+        for index, search_request in enumerate(search_plan, start=1):
+            query = search_request.query
+            per_query_limit = search_request.max_results
             if len(discoveries) >= limit:
                 break
             LOGGER.info(
-                "Tavily query %s/%s: max_results=%s query=%r",
+                "Tavily query %s/%s: lane=%s max_results=%s query=%r",
                 index,
-                len(profile.queries),
+                len(search_plan),
+                search_request.lane,
                 per_query_limit,
                 query.text,
             )
@@ -47,6 +68,10 @@ class TavilyConnector(DiscoveryConnector):
                 "max_results": per_query_limit,
                 "include_raw_content": True,
             }
+            if search_request.include_domains:
+                payload["include_domains"] = list(search_request.include_domains)
+            if search_request.exclude_domains:
+                payload["exclude_domains"] = list(search_request.exclude_domains)
             data = _post_json(TAVILY_SEARCH_URL, payload)
             results = data.get("results", [])
             provider_results_total += len(results)
@@ -73,6 +98,9 @@ class TavilyConnector(DiscoveryConnector):
                         raw_text=raw_text,
                         metadata={
                             "query": query.text,
+                            "search_lane": search_request.lane,
+                            "include_domains": list(search_request.include_domains),
+                            "exclude_domains": list(search_request.exclude_domains),
                             "score": item.get("score"),
                             "published_date": item.get("published_date"),
                         },
@@ -103,6 +131,69 @@ class TavilyConnector(DiscoveryConnector):
             limit,
         )
         return discoveries
+
+
+def _build_search_plan(
+    profile: SearchProfile, limit: int
+) -> list[_SearchRequest]:
+    if limit <= 0 or not profile.queries:
+        return []
+
+    if not profile.preferred_source_domains:
+        per_query_limit = min(profile.max_results_per_query, limit)
+        return [
+            _SearchRequest(
+                query=query,
+                max_results=per_query_limit,
+                lane="general",
+                exclude_domains=tuple(profile.excluded_source_domains),
+            )
+            for query in profile.queries
+        ]
+
+    curated_budget = min(limit, ceil(limit * CURATED_RESULT_SHARE))
+    domain_batches = _domain_batches(profile.preferred_source_domains)
+    batch_budgets = _allocate_budget(curated_budget, len(domain_batches))
+    plan = [
+        _SearchRequest(
+            query=profile.queries[index % len(profile.queries)],
+            max_results=min(profile.max_results_per_query, budget),
+            lane="curated",
+            include_domains=tuple(domain_batch),
+        )
+        for index, (domain_batch, budget) in enumerate(
+            zip(domain_batches, batch_budgets, strict=True)
+        )
+        if budget > 0
+    ]
+
+    exploratory_budget = limit - curated_budget
+    if exploratory_budget > 0:
+        plan.append(
+            _SearchRequest(
+                query=profile.queries[len(plan) % len(profile.queries)],
+                max_results=min(
+                    profile.max_results_per_query, exploratory_budget
+                ),
+                lane="exploratory",
+                exclude_domains=tuple(profile.excluded_source_domains),
+            )
+        )
+    return plan
+
+
+def _domain_batches(domains: list[str]) -> list[list[str]]:
+    return [
+        domains[index : index + DOMAIN_BATCH_SIZE]
+        for index in range(0, len(domains), DOMAIN_BATCH_SIZE)
+    ]
+
+
+def _allocate_budget(total: int, slots: int) -> list[int]:
+    if slots <= 0:
+        return []
+    base, extra = divmod(total, slots)
+    return [base + (1 if index < extra else 0) for index in range(slots)]
 
 
 def _normalize_result_url(value: str | None) -> str | None:
