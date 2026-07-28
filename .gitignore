@@ -14,3 +14,12 @@ htmlcov/
 # os/editor
 .DS_Store
 .vscode/
+
+# local database files
+*.db
+*.sqlite
+*.sqlite3
+
+# local AWS CLI installer artifacts
+aws/
+awscliv2.zip

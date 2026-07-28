@@ -10,16 +10,24 @@ from app.db.base import Base
 from app.db.session import engine
 
 
+LOGGER = logging.getLogger(__name__)
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(levelname)s %(name)s: %(message)s",
 )
 logging.getLogger("app").setLevel(logging.INFO)
 
+settings = get_settings()
+
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    Base.metadata.create_all(bind=engine)
+    if settings.initialize_database:
+        LOGGER.info("Initializing database schema")
+        Base.metadata.create_all(bind=engine)
+    else:
+        LOGGER.info("Skipping database schema initialization")
     yield
 
 
@@ -29,7 +37,6 @@ app = FastAPI(
     description="Backend-only MVP for transparent direct-product job opportunity analysis.",
     lifespan=lifespan,
 )
-settings = get_settings()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
