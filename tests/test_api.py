@@ -87,15 +87,15 @@ def test_run_radar_unknown_profile_returns_404() -> None:
     assert response.status_code == 404
 
 
-def test_cors_allows_local_next_frontend() -> None:
+def test_cors_allows_production_frontend() -> None:
     with TestClient(app) as client:
         response = client.options(
             "/radar/runs",
             headers={
-                "Origin": "http://localhost:3000",
+                "Origin": "https://job-search-fe.vercel.app",
                 "Access-Control-Request-Method": "POST",
             },
         )
 
     assert response.status_code == 200
-    assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
+    assert response.headers["access-control-allow-origin"] == "https://job-search-fe.vercel.app"
