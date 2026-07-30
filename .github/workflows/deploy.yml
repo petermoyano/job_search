@@ -1,0 +1,134 @@
+name: Test and deploy backend
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: sa-east-1
+  AWS_ROLE_ARN: arn:aws:iam::535379468109:role/job-search-github-deploy
+  ECR_REPOSITORY: job-search-api
+  ECS_CLUSTER: default
+  ECS_SERVICE: job-search-api
+  ECS_TASK_DEFINITION: deploy/ecs-task-definition.json
+  ECS_CONTAINER_NAME: Main
+  API_BASE_URL: https://jo-4d640afb7d8a498ba98b7048af302d6c.ecs.sa-east-1.on.aws
+  FRONTEND_ORIGIN: https://job-search-fe.vercel.app
+
+jobs:
+  test:
+    name: Lint and test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen --all-groups
+
+      - name: Run Ruff
+        run: uv run ruff check .
+
+      - name: Run tests
+        run: uv run pytest -q
+
+  deploy:
+    name: Deploy to production
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: production
+      url: https://jo-4d640afb7d8a498ba98b7048af302d6c.ecs.sa-east-1.on.aws
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Configure temporary AWS credentials
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: job-search-${{ github.run_id }}
+
+      - name: Log in to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@d539f0932e70871a027e9d5a9d8fc38589180a64 # v2.1.6
+
+      - name: Build and push immutable image
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          IMAGE_URI="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          docker build --pull --tag "$IMAGE_URI" .
+          docker push "$IMAGE_URI"
+          echo "image=$IMAGE_URI" >> "$GITHUB_OUTPUT"
+
+      - name: Render task definition
+        id: task-definition
+        uses: aws-actions/amazon-ecs-render-task-definition@138c24f321fdbdf7edee4a685519d253cae2cdea # v1.9.0
+        with:
+          task-definition: ${{ env.ECS_TASK_DEFINITION }}
+          container-name: ${{ env.ECS_CONTAINER_NAME }}
+          image: ${{ steps.build-image.outputs.image }}
+
+      - name: Deploy task definition
+        uses: aws-actions/amazon-ecs-deploy-task-definition@c465972ecbd160473f22e683363b422a5412a3de # v2.6.3
+        with:
+          task-definition: ${{ steps.task-definition.outputs.task-definition }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          service: ${{ env.ECS_SERVICE }}
+          wait-for-service-stability: true
+          wait-max-delay-seconds: 15
+
+      - name: Verify production health and CORS
+        run: |
+          HEALTH_RESPONSE="$(curl --fail --silent --show-error "$API_BASE_URL/health")"
+          test "$HEALTH_RESPONSE" = '{"status":"ok"}'
+
+          HEADER_FILE="$(mktemp)"
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --request OPTIONS \
+            --header "Origin: $FRONTEND_ORIGIN" \
+            --header "Access-Control-Request-Method: POST" \
+            --header "Access-Control-Request-Headers: content-type" \
+            --dump-header "$HEADER_FILE" \
+            --output /dev/null \
+            "$API_BASE_URL/radar/runs"
+          grep --fixed-strings --ignore-case \
+            "access-control-allow-origin: $FRONTEND_ORIGIN" \
+            "$HEADER_FILE"
+
+      - name: Add deployment summary
+        run: |
+          {
+            echo "### Production deployment"
+            echo
+            echo "- Commit: \`$GITHUB_SHA\`"
+            echo "- Image: \`${{ steps.build-image.outputs.image }}\`"
+            echo "- Service: \`$ECS_CLUSTER/$ECS_SERVICE\`"
+            echo "- API: $API_BASE_URL"
+          } >> "$GITHUB_STEP_SUMMARY"

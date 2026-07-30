@@ -61,4 +61,4 @@ Recommended backend path:
 3. Run it with Amazon ECS Express Mode.
 4. Store `TAVILY_API_KEY` as an environment variable or secret.
 5. Configure CORS to allow the deployed frontend origin.
-6. Add GitHub Actions later so merges to `main` build and redeploy the image.
+6. See `deploy/README.md` for the GitHub Actions deployment workflow, IAM policies, monitoring, and rollback instructions.

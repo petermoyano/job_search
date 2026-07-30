@@ -1,0 +1,63 @@
+{
+  "family": "default-job-search-api",
+  "executionRoleArn": "arn:aws:iam::535379468109:role/ecsTaskExecutionRole",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
+  "cpu": "256",
+  "memory": "512",
+  "runtimePlatform": {
+    "cpuArchitecture": "X86_64",
+    "operatingSystemFamily": "LINUX"
+  },
+  "containerDefinitions": [
+    {
+      "name": "Main",
+      "image": "535379468109.dkr.ecr.sa-east-1.amazonaws.com/job-search-api:264b8e8",
+      "cpu": 256,
+      "memoryReservation": 512,
+      "portMappings": [
+        {
+          "containerPort": 8000,
+          "hostPort": 8000,
+          "protocol": "tcp",
+          "name": "main-8000-tcp"
+        }
+      ],
+      "essential": true,
+      "environment": [
+        {
+          "name": "INITIALIZE_DATABASE",
+          "value": "false"
+        },
+        {
+          "name": "APP_ENV",
+          "value": "production"
+        },
+        {
+          "name": "DATABASE_URL",
+          "value": "sqlite:////tmp/job_radar.db"
+        },
+        {
+          "name": "CORS_ORIGINS",
+          "value": "[\"http://localhost:3000\",\"http://127.0.0.1:3000\",\"https://job-search-fe.vercel.app\"]"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "TAVILY_API_KEY",
+          "valueFrom": "arn:aws:secretsmanager:sa-east-1:535379468109:secret:job-search/tavily-api-key-ze5CfD"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/aws/ecs/default/job-search-api-c8bf",
+          "awslogs-region": "sa-east-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      }
+    }
+  ]
+}
