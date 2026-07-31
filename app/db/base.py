@@ -9,6 +9,10 @@ from app.models import (  # noqa: F401
     JobAnalysis,
     JobLead,
     JobSource,
+    RadarEvaluation,
+    RadarFeedback,
+    RadarOpportunity,
+    RadarRun,
     ScoreBreakdown,
     User,
 )

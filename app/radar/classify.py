@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import re
 
+from app.radar.eligibility import assess_candidate_eligibility
 from app.radar.models import (
+    EligibilityStatus,
     NormalizedJobCandidate,
     PageType,
     RadarClassification,
@@ -42,6 +44,46 @@ def classify_candidate(
             needs_review=page_type == PageType.unknown,
         )
 
+    assessment = assess_candidate_eligibility(candidate, profile)
+    if assessment is not None:
+        failed_checks = [
+            check
+            for check in assessment.checks
+            if check.status == EligibilityStatus.failed
+        ]
+        unknown_checks = [
+            check
+            for check in assessment.checks
+            if check.status == EligibilityStatus.unknown
+        ]
+        if assessment.eligible:
+            verdict = RadarVerdict.promising
+            reasons = [
+                f"Tier {assessment.role_tier} target role",
+                *assessment.positive_signals,
+            ][:4]
+        elif failed_checks:
+            verdict = RadarVerdict.reject
+            reasons = [check.reason for check in failed_checks[:4]]
+        else:
+            verdict = RadarVerdict.maybe
+            reasons = [check.reason for check in unknown_checks[:4]]
+        return RadarClassification(
+            verdict=verdict,
+            score=assessment.score,
+            eligible=assessment.eligible,
+            page_type=page_type,
+            is_job_posting=True,
+            reasons=reasons,
+            positive_signals=assessment.positive_signals,
+            negative_signals=assessment.negative_signals,
+            facts=assessment.facts,
+            eligibility_checks=assessment.checks,
+            role_tier=assessment.role_tier,
+            rank_components=assessment.rank_components,
+            needs_review=not assessment.eligible and not failed_checks,
+        )
+
     score = 35
     positive: list[str] = []
     negative: list[str] = []
@@ -51,7 +93,9 @@ def classify_candidate(
         positive.append("appears on a company or ATS-hosted careers page")
 
     missing_required = [
-        term for term in profile.required_terms if not _contains_phrase(text, term.lower())
+        term
+        for term in profile.required_terms
+        if not _contains_phrase(text, term.lower())
     ]
     if profile.required_terms and len(missing_required) == len(profile.required_terms):
         score -= 20
@@ -93,6 +137,7 @@ def classify_candidate(
     return RadarClassification(
         verdict=verdict,
         score=bounded_score,
+        eligible=verdict == RadarVerdict.promising,
         page_type=page_type,
         is_job_posting=True,
         reasons=reasons,

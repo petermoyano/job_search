@@ -11,7 +11,7 @@ def dedupe_candidates(
     seen: set[str] = set()
     unique: list[NormalizedJobCandidate] = []
     for candidate in candidates:
-        key = _candidate_key(candidate)
+        key = candidate_identity_key(candidate)
         if key in seen:
             continue
         seen.add(key)
@@ -19,15 +19,20 @@ def dedupe_candidates(
     return unique
 
 
-def _candidate_key(candidate: NormalizedJobCandidate) -> str:
-    if candidate.canonical_url:
-        return f"url:{candidate.canonical_url}"
+def candidate_identity_key(candidate: NormalizedJobCandidate) -> str:
     title = _slug(candidate.title or "")
     company = _slug(candidate.company_name or "")
     location = _slug(candidate.location_text or "")
+    if title and company:
+        return f"job:{company}:{title}:{location}"
+    if candidate.canonical_url:
+        return f"url:{candidate.canonical_url}"
     return f"job:{company}:{title}:{location}"
 
 
-def _slug(value: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+def candidate_url_key(candidate: NormalizedJobCandidate) -> str:
+    return f"url:{candidate.canonical_url}"
 
+
+def _slug(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", value.casefold()).strip("-")

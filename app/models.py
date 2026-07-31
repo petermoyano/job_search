@@ -238,6 +238,125 @@ class HumanDecision(Base, TimestampMixin):
     )
 
 
+class RadarRun(Base, TimestampMixin):
+    __tablename__ = "radar_runs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    profile_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    profile_version: Mapped[str] = mapped_column(String(100), nullable=False)
+    connector: Mapped[str] = mapped_column(String(100), nullable=False)
+    requested_limit: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(50), default="completed", nullable=False)
+    total_raw: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    total_unique: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    total_qualified: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    total_new: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    total_excluded: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    source_summaries: Mapped[list[dict]] = mapped_column(
+        JSON, default=list, nullable=False
+    )
+
+    evaluations: Mapped[list["RadarEvaluation"]] = relationship(
+        back_populates="run", cascade="all, delete-orphan"
+    )
+
+
+class RadarOpportunity(Base, TimestampMixin):
+    __tablename__ = "radar_opportunities"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    identity_key: Mapped[str] = mapped_column(String(1000), unique=True, nullable=False)
+    canonical_url: Mapped[str] = mapped_column(
+        String(1000), unique=True, nullable=False
+    )
+    source_kind: Mapped[str] = mapped_column(String(100), nullable=False)
+    source_domain: Mapped[str | None] = mapped_column(String(255))
+    external_id: Mapped[str | None] = mapped_column(String(255))
+    title: Mapped[str | None] = mapped_column(String(500))
+    company_name: Mapped[str | None] = mapped_column(String(255))
+    location_text: Mapped[str | None] = mapped_column(String(500))
+    raw_text: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    facts: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime, default=now_utc, nullable=False
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime, default=now_utc, nullable=False
+    )
+    last_presented_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    evaluations: Mapped[list["RadarEvaluation"]] = relationship(
+        back_populates="opportunity", cascade="all, delete-orphan"
+    )
+    feedback_entries: Mapped[list["RadarFeedback"]] = relationship(
+        back_populates="opportunity", cascade="all, delete-orphan"
+    )
+
+
+class RadarEvaluation(Base, TimestampMixin):
+    __tablename__ = "radar_evaluations"
+    __table_args__ = (
+        UniqueConstraint(
+            "run_id",
+            "opportunity_id",
+            name="uq_radar_evaluation_run_opportunity",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("radar_runs.id"), nullable=False, index=True
+    )
+    opportunity_id: Mapped[str] = mapped_column(
+        ForeignKey("radar_opportunities.id"), nullable=False, index=True
+    )
+    verdict: Mapped[str] = mapped_column(String(50), nullable=False)
+    eligible: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_new: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    presented: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    role_tier: Mapped[int | None] = mapped_column(Integer)
+    facts: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    eligibility_checks: Mapped[list[dict]] = mapped_column(
+        JSON, default=list, nullable=False
+    )
+    reasons: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    positive_signals: Mapped[list[str]] = mapped_column(
+        JSON, default=list, nullable=False
+    )
+    negative_signals: Mapped[list[str]] = mapped_column(
+        JSON, default=list, nullable=False
+    )
+    classifier_version: Mapped[str] = mapped_column(String(100), nullable=False)
+
+    run: Mapped[RadarRun] = relationship(back_populates="evaluations")
+    opportunity: Mapped[RadarOpportunity] = relationship(back_populates="evaluations")
+
+
+class RadarFeedback(Base, TimestampMixin):
+    __tablename__ = "radar_feedback"
+    __table_args__ = (
+        UniqueConstraint(
+            "opportunity_id",
+            "profile_id",
+            name="uq_radar_feedback_opportunity_profile",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    opportunity_id: Mapped[str] = mapped_column(
+        ForeignKey("radar_opportunities.id"), nullable=False, index=True
+    )
+    profile_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(100), nullable=False)
+    reason_codes: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text)
+
+    opportunity: Mapped[RadarOpportunity] = relationship(
+        back_populates="feedback_entries"
+    )
+
+
 class AppConfig(Base, TimestampMixin):
     __tablename__ = "app_config"
 

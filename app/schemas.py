@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class SignalPolarity(StrEnum):
@@ -196,6 +196,89 @@ class HumanDecisionRead(BaseModel):
     notes: str | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class RadarFeedbackAction(StrEnum):
+    interested = "interested"
+    not_relevant = "not_relevant"
+    applied = "applied"
+
+
+class RadarFeedbackReason(StrEnum):
+    not_remote = "not_remote"
+    cannot_hire_argentina = "cannot_hire_argentina"
+    requires_advanced_english = "requires_advanced_english"
+    closed = "closed"
+    junior_or_internship = "junior_or_internship"
+    wrong_role = "wrong_role"
+    english_description_or_application = "english_description_or_application"
+    duplicate = "duplicate"
+    broken_link = "broken_link"
+    other = "other"
+
+
+class RadarFeedbackUpsert(BaseModel):
+    profile_id: str
+    action: RadarFeedbackAction
+    reason_codes: list[RadarFeedbackReason] = Field(default_factory=list)
+    notes: str | None = Field(default=None, max_length=2000)
+
+    @model_validator(mode="after")
+    def validate_reason_codes(self):
+        if self.action == RadarFeedbackAction.not_relevant and not self.reason_codes:
+            raise ValueError(
+                "At least one reason is required for not_relevant feedback"
+            )
+        return self
+
+
+class RadarFeedbackRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    opportunity_id: str
+    profile_id: str
+    action: RadarFeedbackAction
+    reason_codes: list[RadarFeedbackReason]
+    notes: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class RadarRunRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    profile_id: str
+    profile_version: str
+    connector: str
+    requested_limit: int
+    status: str
+    total_raw: int
+    total_unique: int
+    total_qualified: int
+    total_new: int
+    total_excluded: int
+    source_summaries: list[dict[str, Any]]
+    created_at: datetime
+    updated_at: datetime
+
+
+class RadarOpportunityRead(BaseModel):
+    id: str
+    canonical_url: str
+    source_kind: str
+    source_domain: str | None = None
+    external_id: str | None = None
+    title: str | None = None
+    company_name: str | None = None
+    location_text: str | None = None
+    facts: dict[str, Any] = Field(default_factory=dict)
+    first_seen_at: datetime
+    last_seen_at: datetime
+    last_presented_at: datetime | None = None
+    latest_evaluation: dict[str, Any] | None = None
+    feedback: RadarFeedbackRead | None = None
 
 
 class RadarRunRequest(BaseModel):

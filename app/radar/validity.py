@@ -11,13 +11,22 @@ DISCUSSION_DOMAINS = {"reddit.com"}
 INFORMATIONAL_DOMAINS = {"wikipedia.org"}
 
 EXPIRED_MARKERS = [
+    "ya no se aceptan solicitudes",
+    "ya no acepta solicitudes",
+    "no se aceptan mas solicitudes",
+    "esta oferta ya no esta disponible",
+    "proceso de seleccion finalizado",
     "job is no longer available",
     "position has been filled",
     "position is no longer available",
+    "no longer accepting applications",
+    "applications are closed",
+    "job expired",
     "vacante finalizada",
     "vacante cerrada",
     "oferta finalizada",
     "oferta expirada",
+    "oferta cerrada",
 ]
 
 LISTING_TITLE_PATTERNS = [
@@ -119,9 +128,7 @@ def page_type_rejection_reason(page_type: PageType) -> str:
             "is a job search/listing page, not an individual vacancy"
         ),
         PageType.informational: "is informational content, not a job vacancy",
-        PageType.organization_page: (
-            "is an organization homepage, not a job vacancy"
-        ),
+        PageType.organization_page: ("is an organization homepage, not a job vacancy"),
         PageType.discussion: "is discussion content, not a job vacancy",
         PageType.expired: "appears to be an expired or closed vacancy",
         PageType.unknown: "could not be verified as an individual job vacancy",

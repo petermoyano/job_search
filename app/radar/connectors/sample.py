@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 
+from pydantic import HttpUrl
+
 from app.radar.connectors.base import DiscoveryConnector
 from app.radar.models import DiscoverySourceKind, RawDiscovery, SearchProfile
 
@@ -18,7 +20,7 @@ class SampleConnector(DiscoveryConnector):
                 source=DiscoverySourceKind.sample,
                 title="Senior Backend Engineer, AI Platform",
                 company_name="Acme Product AI",
-                url="https://boards.greenhouse.io/acme/jobs/123",
+                url=HttpUrl("https://boards.greenhouse.io/acme/jobs/123"),
                 location_text="Remote - United States",
                 raw_text=(
                     "We are hiring a Senior Backend Engineer for our product "
@@ -31,7 +33,7 @@ class SampleConnector(DiscoveryConnector):
                 source=DiscoverySourceKind.sample,
                 title="Python Developer",
                 company_name="Global Staff Partners",
-                url="https://example.com/jobs/python-developer",
+                url=HttpUrl("https://example.com/jobs/python-developer"),
                 location_text="Remote",
                 raw_text=(
                     "Our client is looking for a Python Developer. This is a "
@@ -43,4 +45,3 @@ class SampleConnector(DiscoveryConnector):
         ]
         LOGGER.info("Loaded %s sample discovery item(s)", len(samples))
         return samples[:limit]
-

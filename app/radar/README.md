@@ -1,157 +1,191 @@
 # Radar Module
 
-The radar module is the first implementation of the job discovery side of this
-project. The existing backend is good at analyzing a job lead once we already
-have it. This module focuses on the missing earlier step: finding likely direct
-product opportunities before they enter the main analysis workflow.
+The radar is the job-discovery and prequalification layer of the backend. It
+turns source results into a short, evidence-backed list of opportunities that
+are worth showing to a candidate. Discovery is still user-triggered: the
+frontend calls the run endpoint when the user presses Search. There is no
+scheduler and the backend never applies to a job.
 
-The radar now supports multiple search profiles. The default profile remains
-`peter-latam-remote-ai-fullstack-product`: fully remote, LATAM-friendly or
-globally remote direct employer roles at product companies, especially AI
-Engineer, Applied AI, full-stack product engineering, and ownership-heavy roles.
-It also includes two Romina profiles: `romina-remote-spanish-hr` for remote
-Spanish-language HR roles, and `romina-mendoza-hr-onsite-hybrid` for Mendoza
-or Gran Mendoza onsite/hybrid HR roles.
+## Romina's Remote Profile
 
-## Current Scope
+The profile ID is `romina-remote-spanish-hr`, currently versioned as
+`2026-07-30.1`. It represents Romina Roby as an HR professional with more than
+eight years of experience, an HRBP/Talent Acquisition focus, and a
+legal/employment-relations background.
 
-This is intentionally a local-first module. It does not add database tables,
-migrations, or FastAPI endpoints yet. The goal is to test source quality and
-classification behavior from the terminal before committing to a persistent
-schema or UI.
+A result is eligible only when every required fact can be verified:
 
-Run the sample pipeline:
+- The title matches a configured Tier 1, 2, or 3 HR role.
+- The vacancy is explicitly fully remote.
+- A candidate based in Argentina can be hired (Argentina, LATAM, global, or
+  international hiring).
+- The description and application action are in Spanish.
+- Advanced or fluent English is not mandatory. Basic/intermediate or
+  non-exclusive English is allowed.
+- The role is semi-senior, senior, specialist, or an equivalent experienced
+  position.
+- The individual job page is still open and has an active application action.
+- The role is not junior, an internship, sales, call center, general
+  administration, mandatory onsite, or hybrid.
 
-```bash
-uv run python -m app.radar
+A failed check rejects the result. Missing evidence produces an ineligible
+`maybe` result for audit; it is not placed in the user's main opportunity
+list. This deliberately favors precision over volume.
+
+## Ordered Source Waterfall
+
+Romina's remote search follows this exact order:
+
+1. InfoJobs
+2. LinkedIn Jobs
+3. Computrabajo Argentina
+4. Bumeran
+5. Indeed España
+6. Get On Board
+7. Hiring Room
+8. Torre
+9. Wellfound
+10. Remote Latam
+11. Workana (HR searches only)
+12. Talent.com
+13. Jooble
+
+Each source is searched with Tier 1, Tier 2, and Tier 3 role queries. The next
+source is queried only if the current source returns fewer than three new,
+qualified results. The run also stops after five new qualified opportunities
+have been collected.
+
+For ordered profiles, the request `limit` caps both the displayed target and
+the number requested from each source; it does not prevent later sources from
+being searched. Each source has its own smaller `max_results` safety limit.
+This is necessary for the waterfall to reach fallback sources after noisy
+earlier sources.
+
+## Verification Pipeline
+
+For profiles with an eligibility policy, the pipeline is:
+
+```text
+ordered source search
+  -> fetch individual job page and application page
+  -> extract visible text and JobPosting JSON-LD
+  -> normalize and deduplicate
+  -> verify individual/open vacancy
+  -> run deterministic eligibility gates
+  -> rank eligible results
+  -> suppress previously presented opportunities
+  -> persist run, opportunity, evaluation, and evidence
 ```
 
-The command logs progress to stderr by default. Use `--log-level DEBUG`,
-`--log-level INFO`, `--log-level WARNING`, or `--log-level ERROR` to control
-how much progress detail is shown.
+Verified page and JSON-LD fields take precedence over search-engine snippets.
+The persisted evaluation records facts, every eligibility check, evidence,
+classifier version, score components, whether the result was new, and whether
+it was presented.
 
-Print full JSON:
+## API
 
-```bash
-uv run python -m app.radar --json
-```
+List profiles:
 
-Use Tavily after setting TAVILY_API_KEY in .env or exporting it in your shell:
-
-```bash
-uv run python -m app.radar --source tavily --limit 25
-uv run python -m app.radar --profile romina-remote-spanish-hr --source tavily --limit 25
-uv run python -m app.radar --profile romina-mendoza-hr-onsite-hybrid --source tavily --limit 25
-```
-
-Use known ATS boards directly:
-
-```bash
-uv run python -m app.radar --source greenhouse --greenhouse-board exampleco
-uv run python -m app.radar --source lever --lever-company exampleco
-```
-
-## REST API
-
-The FastAPI app exposes the radar for the frontend:
-
-```bash
+```http
 GET /radar/profiles
-POST /radar/runs
 ```
 
-Example run request:
+Run a manual search:
 
-```json
+```http
+POST /radar/runs
+Content-Type: application/json
+
 {
-  "profile_id": "romina-mendoza-hr-onsite-hybrid",
+  "profile_id": "romina-remote-spanish-hr",
   "source": "tavily",
   "limit": 25
 }
 ```
 
-Use `source: "sample"` for local UI testing without calling Tavily.
+Important response fields:
 
-## Structure
+- `run_id` and `profile_version` identify the persisted run and policy.
+- `items` contains only new, fully eligible opportunities for Romina's
+  structured profile.
+- `excluded_items` contains rejects, unverified maybes, repeats, and eligible
+  overflow for diagnostics.
+- `total_qualified`, `total_new`, and `total_excluded` describe the run.
+- `source_summaries` explains which sources ran and why the waterfall stopped.
+- Every item has a stable `opportunity_id`, normalized candidate data, facts,
+  eligibility checks, role tier, rank components, and evidence.
 
-`models.py`
-: Shared Pydantic models for search profiles, raw discoveries, normalized job
-candidates, classifications, and discovery run results.
+List previous runs:
 
-`profiles.py`
-: Saved radar profiles for each candidate/search intent. Peter's profile
-targets remote AI/full-stack product roles. Romina has one remote Spanish HR
-profile and one Mendoza onsite/hybrid HR profile. Her Tier-1 source domains
-drive curated Tavily searches; the larger `source_references` list remains
-metadata for evaluating future dedicated connectors.
-
-`connectors/`
-: Source-specific discovery connectors. The module currently includes:
-
-- `sample.py`: local deterministic examples for development and tests.
-- `tavily.py`: web search connector with an 80% Tier-1 domain-constrained
-  lane and a 20% exploratory lane that excludes known irrelevant domains.
-- `greenhouse.py`: direct Greenhouse job board connector.
-- `lever.py`: direct Lever postings connector.
-
-`normalize.py`
-: Converts source-specific raw discoveries into one internal candidate shape
-and canonicalizes URLs for deduplication.
-
-`dedupe.py`
-: Removes repeated candidates, primarily by canonical URL.
-
-`validity.py`
-: Classifies page type before fit scoring. Articles, organization homepages,
-search/listing pages, discussions, expired jobs, and unverified pages do not
-enter the fit-scoring stage.
-
-`classify.py`
-: A deterministic first-pass classifier. It keeps generic source quality
-signals in code, then applies profile-specific positive and negative scoring
-groups. This lets Peter's AI/product search and Romina's Spanish HR searches
-use the same pipeline with different fit criteria. This is not meant to
-replace Bedrock; it is a cheap filter before LLM classification.
-
-`discovery.py`
-: Orchestrates the full pipeline:
-
-```text
-connectors -> normalization -> dedupe -> page validity -> fit classification
+```http
+GET /radar/runs?profile_id=romina-remote-spanish-hr&limit=25
 ```
 
-`__main__.py`
-: CLI entrypoint for running discovery locally.
+List the opportunity history (presented opportunities by default):
 
-## Why No Database Yet?
+```http
+GET /radar/opportunities?profile_id=romina-remote-spanish-hr
+GET /radar/opportunities?profile_id=romina-remote-spanish-hr&include_excluded=true
+```
 
-The source strategy is still the riskiest part of the product. Before adding
-tables and API endpoints, we need to learn:
+Save or update Romina's feedback:
 
-- Which sources return real direct product jobs.
-- Which queries produce too much staffing or repost noise.
-- Which ATS boards are worth tracking directly.
-- Which fields are required for useful review and deduplication.
+```http
+PUT /radar/opportunities/{opportunity_id}/feedback
+Content-Type: application/json
 
-Once this loop is useful, the next step is to persist discoveries and add a
-review inbox.
+{
+  "profile_id": "romina-remote-spanish-hr",
+  "action": "not_relevant",
+  "reason_codes": ["closed"],
+  "notes": "La plataforma confirmó que la búsqueda cerró."
+}
+```
 
-## Next Steps
+Supported actions are `interested`, `not_relevant`, and `applied`.
+`not_relevant` requires at least one structured reason. Reason codes include
+`not_remote`, `cannot_hire_argentina`, `requires_advanced_english`,
+`closed`, `junior_or_internship`, `wrong_role`,
+`english_description_or_application`, `duplicate`, `broken_link`, and
+`other`.
 
-1. Run the sample pipeline and inspect the JSON shape.
-2. Add a Tavily key and test the default search profile.
-3. Start a small curated list of real Greenhouse and Lever company slugs.
-4. Compare deterministic classification against your actual judgment.
-5. Add a Bedrock classifier that returns structured evidence for:
-   - direct employer vs staffing/intermediary
-   - LATAM/global remote compatibility
-   - product company fit
-   - role fit
-6. Persist discoveries and expose review endpoints:
-   - `POST /radar/runs`
-   - `GET /radar/discoveries`
-   - `POST /radar/discoveries/{id}/promote`
+## Persistence and Migration
 
-The first success criterion is simple: one command should return a short,
-ranked list of fresh opportunities worth manually reviewing.
+Radar data is stored in:
 
+- `radar_runs`
+- `radar_opportunities`
+- `radar_evaluations`
+- `radar_feedback`
+
+Apply migrations with:
+
+```bash
+uv run alembic upgrade head
+```
+
+Previously presented opportunities are suppressed from later remote runs but
+remain available through the opportunity-history endpoint. Rejected and
+unverified results are retained as evaluation evidence so classification
+quality can be inspected and improved without showing noisy results to Romina.
+
+## Local Development
+
+Run the deterministic sample source:
+
+```bash
+uv run python -m app.radar --profile romina-mendoza-hr-onsite-hybrid --source sample
+```
+
+Run Romina's live remote search after configuring `TAVILY_API_KEY`:
+
+```bash
+uv run python -m app.radar --profile romina-remote-spanish-hr --source tavily --limit 25
+```
+
+Run tests and lint:
+
+```bash
+uv run pytest
+uv run ruff check app migrations tests
+```

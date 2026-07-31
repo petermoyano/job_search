@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session, selectinload
 
@@ -21,6 +21,9 @@ from app.models import (
     JobAnalysis,
     JobLead,
     JobSource,
+    RadarEvaluation,
+    RadarOpportunity,
+    RadarRun,
     ScoreBreakdown,
 )
 from app.schemas import (
@@ -37,12 +40,22 @@ from app.schemas import (
     JobAnalysisRequest,
     JobLeadCreate,
     JobLeadRead,
+    RadarFeedbackRead,
+    RadarFeedbackUpsert,
+    RadarOpportunityRead,
+    RadarRunRead,
     RadarRunRequest,
     ScoringConfigRead,
     StructuredCandidateProfile,
 )
 from app.services.extraction import extract_candidate_profile
 from app.services.scoring import DEFAULT_WEIGHTS, SUPPORTED_DEAL_BREAKERS
+from app.radar.persistence import (
+    list_profile_opportunities,
+    load_suppressed_keys,
+    persist_discovery_result,
+    upsert_feedback,
+)
 
 router = APIRouter()
 LOGGER = logging.getLogger(__name__)
@@ -59,7 +72,9 @@ def list_radar_profiles() -> list[SearchProfile]:
 
 
 @router.post("/radar/runs", response_model=DiscoveryRunResult)
-def run_radar(payload: RadarRunRequest) -> DiscoveryRunResult:
+def run_radar(
+    payload: RadarRunRequest, db: Session = Depends(get_db)
+) -> DiscoveryRunResult:
     LOGGER.info(
         "Radar API request received: profile_id=%s source=%s limit=%s",
         payload.profile_id,
@@ -72,43 +87,116 @@ def run_radar(payload: RadarRunRequest) -> DiscoveryRunResult:
         LOGGER.warning("Radar API request rejected: profile_id=%s", payload.profile_id)
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
+    suppressed_keys = (
+        load_suppressed_keys(db, profile.id)
+        if profile.eligibility_policy is not None
+        else set()
+    )
     connectors = [_radar_connector_for(payload.source)]
     try:
-        result = run_discovery(profile=profile, connectors=connectors, limit=payload.limit)
+        result = run_discovery(
+            profile=profile,
+            connectors=connectors,
+            limit=payload.limit,
+            suppressed_keys=suppressed_keys,
+        )
     except RuntimeError as exc:
         LOGGER.exception(
             "Radar API run failed: profile_id=%s source=%s", profile.id, payload.source
         )
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
+    persist_discovery_result(
+        db,
+        result=result,
+        profile=profile,
+        connector=payload.source,
+        requested_limit=payload.limit,
+    )
+    db.commit()
+
     verdict_counts = _radar_verdict_counts(result)
     LOGGER.info(
-        "Radar API run completed: profile_id=%s source=%s raw=%s unique=%s items=%s "
-        "promising=%s maybe=%s reject=%s",
+        "Radar API run completed: profile_id=%s source=%s raw=%s unique=%s "
+        "qualified=%s new=%s excluded=%s promising=%s maybe=%s reject=%s",
         result.profile_id,
         payload.source,
         result.total_raw,
         result.total_unique,
-        len(result.items),
+        result.total_qualified,
+        result.total_new,
+        result.total_excluded,
         verdict_counts["promising"],
         verdict_counts["maybe"],
         verdict_counts["reject"],
     )
-    if result.items:
-        LOGGER.info(
-            "Radar API sample results: %s",
-            " | ".join(
-                (item.candidate.title or "(untitled)")[:80] for item in result.items[:3]
-            ),
-        )
-    else:
-        LOGGER.warning(
-            "Radar API returned zero items: profile_id=%s source=%s. "
-            "Check connector logs for provider result and skipped URL counts.",
-            result.profile_id,
-            payload.source,
-        )
     return result
+
+
+@router.get("/radar/runs", response_model=list[RadarRunRead])
+def list_radar_runs(
+    profile_id: str | None = None,
+    limit: int = Query(default=25, ge=1, le=100),
+    db: Session = Depends(get_db),
+) -> list[RadarRun]:
+    statement = select(RadarRun).order_by(desc(RadarRun.created_at)).limit(limit)
+    if profile_id:
+        statement = statement.where(RadarRun.profile_id == profile_id)
+    return list(db.scalars(statement).all())
+
+
+@router.get("/radar/opportunities", response_model=list[RadarOpportunityRead])
+def list_radar_opportunities(
+    profile_id: str,
+    include_excluded: bool = False,
+    limit: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    try:
+        get_radar_profile(profile_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return list_profile_opportunities(
+        db,
+        profile_id=profile_id,
+        include_excluded=include_excluded,
+        limit=limit,
+    )
+
+
+@router.put(
+    "/radar/opportunities/{opportunity_id}/feedback",
+    response_model=RadarFeedbackRead,
+)
+def save_radar_feedback(
+    opportunity_id: str,
+    payload: RadarFeedbackUpsert,
+    db: Session = Depends(get_db),
+):
+    try:
+        get_radar_profile(payload.profile_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    opportunity = db.get(RadarOpportunity, opportunity_id)
+    if opportunity is None:
+        raise HTTPException(status_code=404, detail="Radar opportunity not found")
+    evaluated_for_profile = db.scalars(
+        select(RadarEvaluation)
+        .join(RadarRun, RadarRun.id == RadarEvaluation.run_id)
+        .where(
+            RadarEvaluation.opportunity_id == opportunity_id,
+            RadarRun.profile_id == payload.profile_id,
+        )
+    ).first()
+    if evaluated_for_profile is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Opportunity was not evaluated for this radar profile",
+        )
+    feedback = upsert_feedback(db, opportunity=opportunity, payload=payload)
+    db.commit()
+    db.refresh(feedback)
+    return feedback
 
 
 @router.post(
@@ -291,7 +379,7 @@ def get_scoring_config() -> ScoringConfigRead:
 
 def _radar_verdict_counts(result: DiscoveryRunResult) -> dict[str, int]:
     counts = {"promising": 0, "maybe": 0, "reject": 0}
-    for item in result.items:
+    for item in [*result.items, *result.excluded_items]:
         counts[item.classification.verdict.value] += 1
     return counts
 

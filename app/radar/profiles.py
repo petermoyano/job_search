@@ -1,76 +1,143 @@
 from __future__ import annotations
 
-from app.radar.models import ScoringGroup, SearchProfile, SearchQuery
+from pydantic import HttpUrl
+
+from app.radar.models import (
+    EligibilityPolicy,
+    RoleTier,
+    ScoringGroup,
+    SearchProfile,
+    SearchQuery,
+    SearchSource,
+)
 
 
 ROMINA_SOURCE_REFERENCES = [
-    "https://www.zonajobs.com.ar",
-    "https://www.infojobs.net",
-    "https://www.computrabajo.com.ar",
-    "https://www.trabajando.com",
-    "https://www.bumeran.com.ar",
-    "https://www.jobleads.com",
-    "https://ar.jooble.org",
-    "https://remolatam.com",
-    "https://www.remlist.com",
-    "https://ar.indeed.com",
-    "https://www.job.com",
-    "https://www.adecco.com.ar",
-    "https://www.randstad.com.ar",
-    "https://www.manpower.com.ar",
-    "https://www.grupogestion.com.ar",
-    "https://www.bayton.com",
-    "https://kaizenconsultora.com.ar",
-    "https://bonder.com.ar",
-    "https://puerinorrhh.com",
-    "https://otium.ar",
-    "https://talenua.com",
-    "https://ripia.com.ar",
-    "https://delfoi.com.ar",
-    "https://www.linkedin.com/jobs",
-    "https://empleos.clarin.com",
-    "https://www.hiringroom.com",
-    "https://www.workana.com/jobs",
-    "https://www.infoempleo.com",
-    "https://www.trabajos.com",
-    "https://www.tecnoempleo.com",
-    "https://www.domestika.org/jobs",
-    "https://rrhhjobs.com",
-    "https://www.getonbrd.com",
-    "https://torre.ai",
-    "https://wellfound.com",
-    "https://jobicy.com",
-    "https://remoteok.com",
-    "https://www.michaelpage.com.ar",
-    "https://www.pagepersonnel.com.ar",
-    "https://www.cetacapitalhumano.com.ar",
-    "https://www.pullmen.com.ar",
-    "https://www.consultoresdeempresas.com",
-    "https://www.servicemen.com.ar",
-    "https://www.suministra.com.ar",
-    "https://www.rhmaster.com.ar",
+    HttpUrl(url)
+    for url in [
+        "https://www.zonajobs.com.ar",
+        "https://www.infojobs.net",
+        "https://ar.computrabajo.com",
+        "https://www.trabajando.com",
+        "https://www.bumeran.com.ar",
+        "https://www.jobleads.com",
+        "https://ar.jooble.org",
+        "https://remolatam.com",
+        "https://www.remlist.com",
+        "https://es.indeed.com",
+        "https://www.job.com",
+        "https://www.adecco.com.ar",
+        "https://www.randstad.com.ar",
+        "https://www.manpower.com.ar",
+        "https://www.grupogestion.com.ar",
+        "https://www.bayton.com",
+        "https://kaizenconsultora.com.ar",
+        "https://bonder.com.ar",
+        "https://puerinorrhh.com",
+        "https://otium.ar",
+        "https://talenua.com",
+        "https://ripia.com.ar",
+        "https://delfoi.com.ar",
+        "https://www.linkedin.com/jobs",
+        "https://empleos.clarin.com",
+        "https://www.hiringroom.com",
+        "https://www.workana.com/jobs",
+        "https://www.infoempleo.com",
+        "https://www.trabajos.com",
+        "https://www.tecnoempleo.com",
+        "https://www.domestika.org/jobs",
+        "https://rrhhjobs.com",
+        "https://www.getonbrd.com",
+        "https://torre.ai",
+        "https://wellfound.com",
+        "https://jobicy.com",
+        "https://remoteok.com",
+        "https://www.michaelpage.com.ar",
+        "https://www.pagepersonnel.com.ar",
+        "https://www.cetacapitalhumano.com.ar",
+        "https://www.pullmen.com.ar",
+        "https://www.consultoresdeempresas.com",
+        "https://www.servicemen.com.ar",
+        "https://www.suministra.com.ar",
+        "https://www.rhmaster.com.ar",
+    ]
 ]
 
 ROMINA_TIER_1_SOURCE_DOMAINS = [
-    "zonajobs.com.ar",
     "infojobs.net",
-    "computrabajo.com.ar",
-    "trabajando.com",
-    "bumeran.com.ar",
-    "jobleads.com",
-    "ar.jooble.org",
-    "remolatam.com",
-    "remlist.com",
-    "ar.indeed.com",
-    "job.com",
-    "adecco.com.ar",
-    "randstad.com.ar",
-    "manpower.com.ar",
-    "grupogestion.com.ar",
-    "torre.ai",
     "linkedin.com",
-    "hiringroom.com",
-    "infoempleo.com",
+    "ar.computrabajo.com",
+    "bumeran.com.ar",
+    "es.indeed.com",
+]
+
+ROMINA_ORDERED_SOURCES = [
+    SearchSource(id="infojobs", label="InfoJobs", domains=["infojobs.net"], order=1),
+    SearchSource(
+        id="linkedin", label="LinkedIn Jobs", domains=["linkedin.com"], order=2
+    ),
+    SearchSource(
+        id="computrabajo_ar",
+        label="Computrabajo Argentina",
+        domains=["ar.computrabajo.com"],
+        order=3,
+    ),
+    SearchSource(id="bumeran", label="Bumeran", domains=["bumeran.com.ar"], order=4),
+    SearchSource(
+        id="indeed_es", label="Indeed España", domains=["es.indeed.com"], order=5
+    ),
+    SearchSource(
+        id="getonboard",
+        label="Get On Board",
+        domains=["getonbrd.com"],
+        order=6,
+        primary=False,
+    ),
+    SearchSource(
+        id="hiringroom",
+        label="Hiring Room",
+        domains=["hiringroom.com"],
+        order=7,
+        primary=False,
+    ),
+    SearchSource(
+        id="torre", label="Torre", domains=["torre.ai"], order=8, primary=False
+    ),
+    SearchSource(
+        id="wellfound",
+        label="Wellfound",
+        domains=["wellfound.com"],
+        order=9,
+        primary=False,
+    ),
+    SearchSource(
+        id="remote_latam",
+        label="Remote Latam",
+        domains=["remolatam.com"],
+        order=10,
+        primary=False,
+    ),
+    SearchSource(
+        id="workana_hr",
+        label="Workana - RRHH",
+        domains=["workana.com"],
+        order=11,
+        primary=False,
+    ),
+    SearchSource(
+        id="talent",
+        label="Talent.com",
+        domains=["talent.com"],
+        order=12,
+        primary=False,
+    ),
+    SearchSource(
+        id="jooble",
+        label="Jooble",
+        domains=["jooble.org", "ar.jooble.org"],
+        order=13,
+        primary=False,
+    ),
 ]
 
 ROMINA_EXCLUDED_SOURCE_DOMAINS = [
@@ -84,20 +151,64 @@ ROMINA_EXCLUDED_SOURCE_DOMAINS = [
     "reddit.com",
 ]
 
-HR_TARGET_ROLES = [
-    "HR Business Partner",
-    "Recursos Humanos",
-    "Analista de Recursos Humanos",
-    "Analista de Capital Humano",
-    "Talent Acquisition",
-    "Recruiter IT",
-    "Reclutamiento y Selección",
-    "People Operations",
-    "Onboarding",
-    "Employee Experience",
-    "Responsable de Recursos Humanos",
-    "Especialista en Recursos Humanos",
+ROMINA_ROLE_TIERS = [
+    RoleTier(
+        tier=1,
+        label="Strategic HR / Talent",
+        titles=[
+            "HR Business Partner",
+            "HRBP",
+            "Talent Acquisition Partner",
+            "Talent Acquisition Specialist",
+            "People Partner",
+            "People Operations",
+        ],
+    ),
+    RoleTier(
+        tier=2,
+        label="Recruiting / People specialist",
+        titles=[
+            "IT Recruiter",
+            "Recruiter IT",
+            "Especialista en Talent Acquisition",
+            "Especialista de Talent Acquisition",
+            "Especialista en Adquisición de Talento",
+            "Tech Recruiter",
+            "Recruitment Specialist",
+            "People Specialist",
+            "People Experience",
+            "Analista de Talento",
+            "Talent Partner",
+            "Analista de Atracción de Talento",
+            "Analista de Atraccion de Talento",
+        ],
+    ),
+    RoleTier(
+        tier=3,
+        label="HR generalist / coordination",
+        titles=[
+            "Analista de Recursos Humanos",
+            "Analista de RRHH",
+            "Analista de Selección",
+            "Analista de Seleccion",
+            "Generalista de Recursos Humanos",
+            "Generalista de RRHH",
+            "HR Generalist",
+            "Coordinador de Recursos Humanos",
+            "Coordinadora de Recursos Humanos",
+            "Coordinador de RRHH",
+            "Coordinadora de RRHH",
+            "Coordinador/a de Recursos Humanos",
+            "Coordinador/a de RRHH",
+            "Employer Branding Specialist",
+            "Especialista en Recursos Humanos",
+            "Responsable de Recursos Humanos",
+        ],
+    ),
 ]
+
+HR_TARGET_ROLES = [title for tier in ROMINA_ROLE_TIERS for title in tier.titles]
+
 
 HR_POSITIVE_GROUPS = [
     ScoringGroup(
@@ -351,17 +462,78 @@ PETER_REMOTE_AI_FULLSTACK_PRODUCT = SearchProfile(
 
 ROMINA_REMOTE_SPANISH_HR = SearchProfile(
     id="romina-remote-spanish-hr",
-    name="Romina - Remote Spanish HR",
+    name="Romina - RRHH remoto en español",
+    version="2026-07-30.1",
     owner_id="romina",
     owner_name="Romina Roby",
+    candidate_summary=(
+        "Profesional de RRHH con más de 8 años de experiencia, perfil HRBP y "
+        "Talent Acquisition, con base legal y de relaciones laborales."
+    ),
     description=(
-        "Find remote Spanish-language HR, recruiting, HRBP, and people operations "
-        "roles for an Argentina/LATAM-based candidate who does not speak English."
+        "Vacantes de RRHH completamente remotas, publicadas y postulables en español, "
+        "para una candidata basada en Argentina. Se acepta inglés básico o intermedio; "
+        "el inglés avanzado o fluido excluyente descalifica la oportunidad."
     ),
     target_roles=HR_TARGET_ROLES,
+    role_tiers=ROMINA_ROLE_TIERS,
     location_policy=(
-        "Prefer remote roles open to Argentina or LATAM. Spanish-language roles are "
-        "strongly preferred; roles requiring English should be rejected."
+        "La publicación puede originarse en cualquier país, pero debe permitir trabajar "
+        "desde Argentina mediante contratación local, LATAM, global o internacional. "
+        "Las posiciones híbridas se evalúan en el perfil separado de Mendoza."
+    ),
+    eligibility_policy=EligibilityPolicy(
+        require_fully_remote=True,
+        eligible_remote_regions=[
+            "Argentina",
+            "LATAM",
+            "Latin America",
+            "América Latina",
+            "America Latina",
+            "global",
+            "worldwide",
+            "anywhere",
+            "internacional",
+            "international hiring",
+            "contratación internacional",
+            "contratacion internacional",
+        ],
+        required_description_language="es",
+        require_spanish_application=True,
+        reject_advanced_english=True,
+        rejected_seniority_terms=[
+            "junior",
+            "jr",
+            "trainee",
+            "pasante",
+            "pasantía",
+            "pasantia",
+            "prácticas",
+            "practicas",
+            "internship",
+            "entry level",
+            "assistant",
+            "asistente",
+            "auxiliar",
+            "sin experiencia",
+        ],
+        excluded_role_terms=[
+            "ventas",
+            "vendedor",
+            "vendedora",
+            "ejecutivo comercial",
+            "ejecutiva comercial",
+            "call center",
+            "telemarketer",
+            "customer service",
+            "atención al cliente",
+            "atencion al cliente",
+            "administrativo",
+            "administrativa",
+            "secretaria",
+            "recepcionista",
+        ],
+        require_active_posting=True,
     ),
     required_terms=["remoto", "remote", "modalidad remota", "trabajo remoto"],
     preferred_terms=[
@@ -372,67 +544,96 @@ ROMINA_REMOTE_SPANISH_HR = SearchProfile(
         "argentina",
         "recursos humanos",
         "reclutamiento",
-        "seleccion",
         "selección",
+        "talent acquisition",
         "hr business partner",
-        "recruiter it",
-        "onboarding",
+        "people partner",
+        "people operations",
+        "relaciones laborales",
+        "legislación laboral",
+        "derecho laboral",
     ],
-    reject_terms=ENGLISH_REQUIRED_GROUP.terms,
+    reject_terms=[
+        *ENGLISH_REQUIRED_GROUP.terms,
+        "presencial",
+        "híbrido",
+        "hibrido",
+        "junior",
+        "pasantía",
+        "pasantia",
+        "prácticas",
+        "practicas",
+        "ventas",
+        "call center",
+    ],
     positive_scoring_groups=[
         ScoringGroup(
-            label="remote Spanish/LATAM fit",
+            label="remote Argentina/LATAM fit",
             points=22,
             terms=[
-                "remoto",
+                "100% remoto",
                 "trabajo remoto",
                 "modalidad remota",
                 "latam",
                 "argentina",
-                "america latina",
                 "américa latina",
+                "global",
+                "contratación internacional",
             ],
         ),
         *HR_POSITIVE_GROUPS,
         ScoringGroup(
-            label="Spanish-friendly signal",
-            points=12,
+            label="legal and labor-relations background fit",
+            points=15,
             terms=[
-                "español",
-                "sin ingles",
-                "sin inglés",
-                "no requiere ingles",
-                "no requiere inglés",
+                "legislación laboral",
+                "derecho laboral",
+                "relaciones laborales",
+                "compliance laboral",
+                "relaciones sindicales",
+                "convenios colectivos",
             ],
         ),
     ],
     negative_scoring_groups=[ENGLISH_REQUIRED_GROUP],
     source_references=ROMINA_SOURCE_REFERENCES,
-    preferred_source_domains=ROMINA_TIER_1_SOURCE_DOMAINS,
+    preferred_source_domains=[
+        domain for source in ROMINA_ORDERED_SOURCES for domain in source.domains
+    ],
     excluded_source_domains=ROMINA_EXCLUDED_SOURCE_DOMAINS,
+    ordered_sources=ROMINA_ORDERED_SOURCES,
     queries=[
         SearchQuery(
-            text='"Recursos Humanos" "remoto" "Argentina" empleo',
-            reason="Spanish-language HR roles open to remote Argentina candidates.",
+            role_tier=1,
+            text=(
+                '("HR Business Partner" OR HRBP OR "Talent Acquisition Partner" OR '
+                '"Talent Acquisition Specialist" OR "People Partner" OR "People Operations") '
+                '(remoto OR remota) (Argentina OR LATAM OR "América Latina")'
+            ),
+            reason="Tier 1 strategic HR and Talent roles.",
         ),
         SearchQuery(
-            text='"HR Business Partner" "remoto" "LATAM" "sin inglés"',
-            reason="Remote HRBP roles that may explicitly avoid English requirements.",
+            role_tier=2,
+            text=(
+                '("IT Recruiter" OR "Recruiter IT" OR "Tech Recruiter" OR "Recruitment Specialist" OR '
+                '"People Specialist" OR "People Experience" OR "Analista de Talento" OR '
+                '"Talent Partner") (remoto OR remota) (Argentina OR LATAM)'
+            ),
+            reason="Tier 2 recruiting and People specialist roles.",
         ),
         SearchQuery(
-            text='"Recruiter IT" "remoto" "Argentina"',
-            reason="Remote IT recruiting roles in Argentina.",
-        ),
-        SearchQuery(
-            text='"Analista de Recursos Humanos" "trabajo remoto" "Argentina"',
-            reason="Remote HR analyst roles in Argentina.",
-        ),
-        SearchQuery(
-            text='"Talent Acquisition" "remoto" "Argentina" "Recursos Humanos"',
-            reason="Talent acquisition roles with Spanish HR context.",
+            role_tier=3,
+            text=(
+                '("Analista de RRHH" OR "Analista de Recursos Humanos" OR '
+                '"Analista de Selección" OR "Generalista de RRHH" OR '
+                '"Coordinador de RRHH" OR "Employer Branding Specialist") '
+                "(remoto OR remota) (Argentina OR LATAM)"
+            ),
+            reason="Tier 3 experienced HR generalist and coordination roles.",
         ),
     ],
-    max_results_per_query=8,
+    max_results_per_query=3,
+    max_qualified_results=5,
 )
 
 ROMINA_MENDOZA_HR_ONSITE_HYBRID = SearchProfile(
@@ -587,4 +788,6 @@ def get_profile(profile_id: str) -> SearchProfile:
         return PROFILES[profile_id]
     except KeyError as exc:
         supported = ", ".join(sorted(PROFILES))
-        raise ValueError(f"Unknown radar profile '{profile_id}'. Supported: {supported}") from exc
+        raise ValueError(
+            f"Unknown radar profile '{profile_id}'. Supported: {supported}"
+        ) from exc

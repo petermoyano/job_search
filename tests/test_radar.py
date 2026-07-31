@@ -2,16 +2,23 @@ import json
 from pathlib import Path
 
 from app.radar.classify import classify_candidate
+from app.radar.connectors.base import DiscoveryConnector
 from app.radar.connectors.sample import SampleConnector
 from app.radar.connectors.tavily import TavilyConnector
 from app.radar.discovery import run_discovery
-from app.radar.models import DiscoverySourceKind, PageType, RadarVerdict, RawDiscovery
+from app.radar.models import (
+    DiscoverySourceKind,
+    EligibilityStatus,
+    PageType,
+    RadarVerdict,
+    RawDiscovery,
+)
 from app.radar.normalize import canonicalize_url, normalize_discovery
 from app.radar.profiles import (
     PETER_REMOTE_AI_FULLSTACK_PRODUCT,
     PETER_US_REMOTE_DIRECT_PRODUCT,
-    ROMINA_EXCLUDED_SOURCE_DOMAINS,
     ROMINA_MENDOZA_HR_ONSITE_HYBRID,
+    ROMINA_ORDERED_SOURCES,
     ROMINA_REMOTE_SPANISH_HR,
     ROMINA_TIER_1_SOURCE_DOMAINS,
     get_profile,
@@ -28,8 +35,7 @@ def test_sample_discovery_classifies_promising_and_reject() -> None:
     assert result.total_raw == 2
     assert result.total_unique == 2
     verdicts = {
-        item.candidate.external_id: item.classification.verdict
-        for item in result.items
+        item.candidate.external_id: item.classification.verdict for item in result.items
     }
     assert verdicts["sample-promising"] == RadarVerdict.promising
     assert verdicts["sample-reject"] == RadarVerdict.reject
@@ -46,33 +52,165 @@ def test_profile_selection_includes_peter_and_romina_profiles() -> None:
     assert PETER_US_REMOTE_DIRECT_PRODUCT == PETER_REMOTE_AI_FULLSTACK_PRODUCT
 
 
-def test_romina_remote_spanish_hr_role_scores_promising() -> None:
+def test_romina_profile_encodes_requested_source_order() -> None:
+    primary = [source for source in ROMINA_ORDERED_SOURCES if source.primary]
+
+    assert [source.id for source in primary] == [
+        "infojobs",
+        "linkedin",
+        "computrabajo_ar",
+        "bumeran",
+        "indeed_es",
+    ]
+    assert [source.domains[0] for source in primary] == ROMINA_TIER_1_SOURCE_DOMAINS
+
+
+def test_romina_remote_verified_spanish_hr_role_is_promising() -> None:
     classification = _classify_text(
         ROMINA_REMOTE_SPANISH_HR,
-        title="Analista de Recursos Humanos remoto",
+        title="HR Business Partner Senior",
         raw_text="""
-        Buscamos Analista de Recursos Humanos para trabajo remoto desde Argentina.
-        Tareas de reclutamiento y selección de personal, onboarding, clima laboral
-        y seguimiento de KPIs de RRHH. Modalidad remota, español nativo.
+        Buscamos HR Business Partner Senior para trabajo 100% remoto desde Argentina.
+        Se requieren más de 5 años de experiencia en recursos humanos, selección de
+        talento, relaciones laborales, legislación laboral y acompañamiento a líderes.
+        La modalidad es completamente remota para nuestro equipo de LATAM.
+        Postularme enviando el CV en español.
         """,
     )
 
     assert classification.verdict == RadarVerdict.promising
-    assert classification.score >= 70
+    assert classification.eligible is True
+    assert classification.role_tier == 1
+    assert all(
+        check.status == EligibilityStatus.passed
+        for check in classification.eligibility_checks
+    )
 
 
-def test_romina_remote_english_required_role_is_rejected() -> None:
+def test_romina_remote_advanced_english_requirement_is_rejected() -> None:
     classification = _classify_text(
         ROMINA_REMOTE_SPANISH_HR,
-        title="HR Business Partner remoto",
+        title="HR Business Partner Senior remoto",
         raw_text="""
-        Remote HR Business Partner para LATAM. Requisito excluyente: inglés avanzado
-        y experiencia bilingual con equipos internacionales.
+        Buscamos HR Business Partner Senior para Argentina y LATAM. El trabajo es
+        100% remoto. Requisito excluyente: inglés avanzado para reuniones diarias.
+        Se requieren 5 años de experiencia en recursos humanos y relaciones laborales.
+        Postularme enviando el CV en español.
         """,
     )
 
     assert classification.verdict == RadarVerdict.reject
-    assert any("required English" in signal for signal in classification.negative_signals)
+    english_check = next(
+        check
+        for check in classification.eligibility_checks
+        if check.criterion == "advanced_english"
+    )
+    assert english_check.status == EligibilityStatus.failed
+
+
+def test_romina_remote_allows_non_exclusive_intermediate_english() -> None:
+    classification = _classify_text(
+        ROMINA_REMOTE_SPANISH_HR,
+        title="People Partner Senior",
+        raw_text="""
+        Buscamos People Partner Senior para Argentina y América Latina. Posición
+        100% remota con cinco años de experiencia en gestión de personas.
+        Inglés intermedio deseable, no excluyente. Toda la descripción, entrevistas
+        y postulación se realizan en español. Postularme ahora.
+        """,
+    )
+
+    assert classification.eligible is True
+
+
+def test_romina_remote_english_description_is_rejected() -> None:
+    classification = _classify_text(
+        ROMINA_REMOTE_SPANISH_HR,
+        title="People Operations Senior",
+        raw_text="""
+        We are looking for a senior People Operations partner based in Argentina.
+        This is a fully remote role for our Latin America team. You will lead human
+        resources operations, employee relations, onboarding, and talent programs.
+        Five years of experience are required. Apply now.
+        """,
+    )
+
+    assert classification.verdict == RadarVerdict.reject
+    assert any(
+        check.criterion == "description_language"
+        and check.status == EligibilityStatus.failed
+        for check in classification.eligibility_checks
+    )
+
+
+def test_romina_remote_onsite_role_is_rejected_even_with_strong_hr_fit() -> None:
+    classification = _classify_text(
+        ROMINA_REMOTE_SPANISH_HR,
+        title="HR Business Partner Senior",
+        raw_text="""
+        Buscamos HR Business Partner Senior para trabajo presencial en Buenos Aires,
+        Argentina. Se requieren cinco años de experiencia en recursos humanos,
+        reclutamiento, onboarding, clima y relaciones laborales. Postularme.
+        """,
+    )
+
+    assert classification.verdict == RadarVerdict.reject
+    assert any(
+        check.criterion == "work_modality" and check.status == EligibilityStatus.failed
+        for check in classification.eligibility_checks
+    )
+
+
+def test_romina_remote_spain_only_role_is_rejected() -> None:
+    classification = _classify_text(
+        ROMINA_REMOTE_SPANISH_HR,
+        title="Talent Acquisition Specialist Senior",
+        raw_text="""
+        Buscamos especialista senior para una posición 100% remota. Es obligatorio
+        residir en España y contar con permiso de trabajo en España. Gestionará
+        selección, entrevistas y onboarding. Postularme en español.
+        """,
+    )
+
+    assert classification.verdict == RadarVerdict.reject
+    assert any(
+        check.criterion == "hiring_geography"
+        and check.status == EligibilityStatus.failed
+        for check in classification.eligibility_checks
+    )
+
+
+def test_romina_remote_junior_role_is_rejected() -> None:
+    classification = _classify_text(
+        ROMINA_REMOTE_SPANISH_HR,
+        title="Talent Acquisition Specialist Junior",
+        raw_text="""
+        Buscamos una persona junior sin experiencia para selección y reclutamiento.
+        La posición es 100% remota desde Argentina para el equipo LATAM.
+        Ofrecemos acompañamiento y aprendizaje. Postularme en español.
+        """,
+    )
+
+    assert classification.verdict == RadarVerdict.reject
+    assert any(
+        check.criterion == "seniority" and check.status == EligibilityStatus.failed
+        for check in classification.eligibility_checks
+    )
+
+
+def test_romina_closed_linkedin_phrase_is_rejected_before_fit() -> None:
+    classification = _classify_text(
+        ROMINA_REMOTE_SPANISH_HR,
+        title="HR Business Partner Senior remoto",
+        raw_text="""
+        Buscamos HR Business Partner para Argentina y LATAM. Trabajo 100% remoto.
+        Ya no se aceptan solicitudes. Cinco años de experiencia en recursos humanos.
+        """,
+    )
+
+    assert classification.verdict == RadarVerdict.reject
+    assert classification.page_type == PageType.expired
+    assert classification.score == 0
 
 
 def test_romina_mendoza_onsite_hrbp_scores_promising() -> None:
@@ -106,11 +244,8 @@ def test_romina_mendoza_buenos_aires_or_relocation_role_is_rejected() -> None:
     )
 
 
-
 def test_romina_irrelevant_results_are_rejected_before_fit_scoring() -> None:
-    fixture_path = (
-        Path(__file__).parent / "fixtures" / "romina_irrelevant_results.json"
-    )
+    fixture_path = Path(__file__).parent / "fixtures" / "romina_irrelevant_results.json"
     fixtures = json.loads(fixture_path.read_text(encoding="utf-8"))
 
     for fixture in fixtures:
@@ -197,7 +332,7 @@ def test_tavily_connector_skips_invalid_relative_urls(monkeypatch) -> None:
     assert all(str(item.url) == "https://example.com/jobs/good" for item in discoveries)
 
 
-def test_tavily_uses_tier_1_domains_and_an_exploratory_lane(monkeypatch) -> None:
+def test_tavily_runs_tier_queries_for_one_ordered_source(monkeypatch) -> None:
     payloads: list[dict] = []
 
     def fake_post_json(_url, payload):
@@ -206,35 +341,106 @@ def test_tavily_uses_tier_1_domains_and_an_exploratory_lane(monkeypatch) -> None
 
     monkeypatch.setattr("app.radar.connectors.tavily._post_json", fake_post_json)
 
-    TavilyConnector(api_key="test-key").discover(
-        ROMINA_REMOTE_SPANISH_HR, limit=25
+    source = ROMINA_ORDERED_SOURCES[0]
+    TavilyConnector(api_key="test-key").discover_source(
+        ROMINA_REMOTE_SPANISH_HR,
+        source,
+        limit=5,
     )
 
-    curated_payloads = [
-        payload for payload in payloads if "include_domains" in payload
-    ]
-    searched_domains = {
-        domain
-        for payload in curated_payloads
-        for domain in payload["include_domains"]
-    }
-    exploratory_payloads = [
-        payload for payload in payloads if "exclude_domains" in payload
-    ]
+    assert len(payloads) == 3
+    assert all(payload["include_domains"] == ["infojobs.net"] for payload in payloads)
+    assert sum(payload["max_results"] for payload in payloads) == 5
 
-    assert searched_domains == set(ROMINA_TIER_1_SOURCE_DOMAINS)
-    assert all(len(payload["include_domains"]) <= 5 for payload in curated_payloads)
-    assert len(exploratory_payloads) == 1
-    assert set(exploratory_payloads[0]["exclude_domains"]) == set(
-        ROMINA_EXCLUDED_SOURCE_DOMAINS
+
+def test_ordered_discovery_stops_after_three_new_qualified_results() -> None:
+    connector = _OrderedFakeConnector(
+        {
+            "infojobs": [_valid_remote_raw(index) for index in range(3)],
+            "linkedin": [_valid_remote_raw(index + 10) for index in range(3)],
+        }
     )
-    assert sum(payload["max_results"] for payload in payloads) == 25
+
+    result = run_discovery(
+        profile=ROMINA_REMOTE_SPANISH_HR,
+        connectors=[connector],
+        limit=25,
+        hydrate=False,
+    )
+
+    assert connector.calls == ["infojobs"]
+    assert result.total_qualified == 3
+    assert result.total_new == 3
+    assert len(result.items) == 3
+    assert not result.excluded_items
+    assert result.source_summaries[0].continued_to_next is False
+    assert result.source_summaries[0].stop_reason == "source_threshold_met"
+
+
+def test_ordered_discovery_continues_when_first_source_has_too_few() -> None:
+    connector = _OrderedFakeConnector(
+        {
+            "infojobs": [_valid_remote_raw(1)],
+            "linkedin": [_valid_remote_raw(index + 10) for index in range(3)],
+        }
+    )
+
+    result = run_discovery(
+        profile=ROMINA_REMOTE_SPANISH_HR,
+        connectors=[connector],
+        limit=25,
+        hydrate=False,
+    )
+
+    assert connector.calls == ["infojobs", "linkedin"]
+    assert result.total_new == 4
+    assert len(result.items) == 4
+    assert result.source_summaries[0].continued_to_next is True
+    assert result.source_summaries[0].stop_reason is None
+    assert result.source_summaries[1].continued_to_next is False
+    assert result.source_summaries[1].stop_reason == "source_threshold_met"
 
 
 def test_canonicalize_url_removes_tracking_params() -> None:
     url = "https://Jobs.Lever.co/acme/123/?utm_source=linkedin&foo=bar#apply"
 
     assert canonicalize_url(url) == "https://jobs.lever.co/acme/123?foo=bar"
+
+
+class _OrderedFakeConnector(DiscoveryConnector):
+    name = "ordered-fake"
+
+    def __init__(self, batches: dict[str, list[RawDiscovery]]) -> None:
+        self.batches = batches
+        self.calls: list[str] = []
+
+    def discover(self, profile, limit: int) -> list[RawDiscovery]:
+        raise AssertionError("Ordered discovery should call discover_source")
+
+    def discover_source(self, profile, source, limit: int) -> list[RawDiscovery]:
+        self.calls.append(source.id)
+        return self.batches.get(source.id, [])[:limit]
+
+
+def _valid_remote_raw(index: int) -> RawDiscovery:
+    return RawDiscovery(
+        source=DiscoverySourceKind.tavily,
+        title=f"HR Business Partner Senior {index}",
+        company_name=f"Empresa {index}",
+        url=f"https://example.com/jobs/hrbp-{index}",
+        location_text="Argentina / LATAM",
+        raw_text="""
+        Buscamos HR Business Partner Senior para trabajar 100% remoto desde Argentina
+        con equipos de América Latina. Se requieren cinco años de experiencia en
+        recursos humanos, selección, relaciones laborales y acompañamiento a líderes.
+        Toda la publicación está en español. Postularme ahora.
+        """,
+        metadata={
+            "page_fetched": True,
+            "page_http_status": 200,
+            "application_text": "Postularme ahora",
+        },
+    )
 
 
 def _classify_text(profile, title: str, raw_text: str):
@@ -244,6 +450,200 @@ def _classify_text(profile, title: str, raw_text: str):
             title=title,
             url="https://example.com/jobs/123",
             raw_text=raw_text,
+            metadata={
+                "page_fetched": True,
+                "page_http_status": 200,
+                "application_text": "Postularme",
+            },
         )
     )
     return classify_candidate(candidate, profile)
+
+
+def test_romina_rejects_country_only_restriction_even_when_latam_is_mentioned() -> None:
+    classification = _classify_text(
+        ROMINA_REMOTE_SPANISH_HR,
+        title="Talent Acquisition Specialist Senior",
+        raw_text="""
+        Buscamos especialista senior para nuestro equipo de LATAM. La posición es
+        100% remota, pero está disponible solo para residentes de Chile. Se requieren
+        cinco años de experiencia en selección y recursos humanos. Postularme ahora.
+        """,
+    )
+
+    assert classification.eligible is False
+    assert any(
+        check.criterion == "hiring_geography"
+        and check.status == EligibilityStatus.failed
+        for check in classification.eligibility_checks
+    )
+
+
+def test_romina_does_not_infer_the_role_from_description_body() -> None:
+    classification = _classify_text(
+        ROMINA_REMOTE_SPANISH_HR,
+        title="Especialista Senior de Cultura",
+        raw_text="""
+        Buscamos especialista senior para trabajar 100% remoto desde Argentina.
+        La persona colaborará con HR Business Partner y Talent Acquisition en
+        iniciativas de recursos humanos para LATAM. Postularme en español.
+        """,
+    )
+
+    assert classification.eligible is False
+    assert any(
+        check.criterion == "role" and check.status == EligibilityStatus.failed
+        for check in classification.eligibility_checks
+    )
+
+
+def test_romina_rejects_expired_structured_valid_through_date() -> None:
+    candidate = normalize_discovery(
+        RawDiscovery(
+            source=DiscoverySourceKind.tavily,
+            title="HR Business Partner Senior",
+            url="https://example.com/jobs/expired-structured",
+            location_text="Argentina / LATAM",
+            raw_text="""
+            Buscamos HR Business Partner Senior para una posición 100% remota desde
+            Argentina. Se requieren cinco años de experiencia en recursos humanos y
+            relaciones laborales. La postulación se realiza en español. Postularme.
+            """,
+            metadata={
+                "page_fetched": True,
+                "page_http_status": 200,
+                "application_text": "Postularme",
+                "valid_through": "2020-01-01T00:00:00Z",
+            },
+        )
+    )
+
+    classification = classify_candidate(candidate, ROMINA_REMOTE_SPANISH_HR)
+
+    assert classification.eligible is False
+    assert any(
+        check.criterion == "active_posting" and check.status == EligibilityStatus.failed
+        for check in classification.eligibility_checks
+    )
+
+
+def test_ordered_discovery_limit_does_not_skip_later_sources() -> None:
+    invalid_first_source = [
+        RawDiscovery(
+            source=DiscoverySourceKind.tavily,
+            title=f"Asistente administrativo junior {index}",
+            company_name=f"Empresa inválida {index}",
+            url=f"https://example.com/jobs/invalid-{index}",
+            raw_text="Puesto presencial junior de administración general.",
+            metadata={"page_fetched": True, "page_http_status": 200},
+        )
+        for index in range(5)
+    ]
+    connector = _OrderedFakeConnector(
+        {
+            "infojobs": invalid_first_source,
+            "linkedin": [_valid_remote_raw(index + 20) for index in range(3)],
+        }
+    )
+
+    result = run_discovery(
+        profile=ROMINA_REMOTE_SPANISH_HR,
+        connectors=[connector],
+        limit=5,
+        hydrate=False,
+    )
+
+    assert connector.calls == ["infojobs", "linkedin"]
+    assert result.total_raw == 8
+    assert len(result.items) == 3
+
+
+def test_romina_rejects_an_english_application_page_for_a_spanish_job() -> None:
+    candidate = normalize_discovery(
+        RawDiscovery(
+            source=DiscoverySourceKind.tavily,
+            title="People Partner Senior",
+            url="https://example.com/jobs/spanish-job-english-form",
+            location_text="Argentina / LATAM",
+            raw_text="""
+            Buscamos People Partner Senior para una posición 100% remota desde
+            Argentina. Se requieren cinco años de experiencia en recursos humanos,
+            selección y relaciones laborales. La descripción está en español.
+            Postularme ahora.
+            """,
+            metadata={
+                "page_fetched": True,
+                "page_http_status": 200,
+                "application_text": (
+                    "Apply now. Complete the job application with your experience, "
+                    "skills, contact details, resume, and professional background."
+                ),
+            },
+        )
+    )
+
+    classification = classify_candidate(candidate, ROMINA_REMOTE_SPANISH_HR)
+
+    assert classification.eligible is False
+    assert any(
+        check.criterion == "application_language"
+        and check.status == EligibilityStatus.failed
+        for check in classification.eligibility_checks
+    )
+
+
+def test_romina_role_matching_accepts_common_title_variants() -> None:
+    analyst = _classify_text(
+        ROMINA_REMOTE_SPANISH_HR,
+        title="Analista Senior de RRHH",
+        raw_text="""
+        Buscamos una persona para trabajo 100% remoto desde Argentina y LATAM.
+        Se requieren cinco años de experiencia en recursos humanos, selección y
+        relaciones laborales. La postulación se realiza en español. Postularme.
+        """,
+    )
+    recruiter = _classify_text(
+        ROMINA_REMOTE_SPANISH_HR,
+        title="Recruiter IT Senior",
+        raw_text="""
+        Buscamos Recruiter IT Senior para una posición 100% remota desde Argentina.
+        Se requieren cinco años de experiencia en selección de perfiles tecnológicos
+        y acompañamiento a líderes de LATAM. Postularme en español.
+        """,
+    )
+
+    assert analyst.eligible is True
+    assert analyst.role_tier == 3
+    assert recruiter.eligible is True
+    assert recruiter.role_tier == 2
+
+
+def test_romina_rejects_a_closed_application_page() -> None:
+    candidate = normalize_discovery(
+        RawDiscovery(
+            source=DiscoverySourceKind.tavily,
+            title="HR Business Partner Senior",
+            url="https://example.com/jobs/closed-application",
+            location_text="Argentina / LATAM",
+            raw_text="""
+            Buscamos HR Business Partner Senior para una posición 100% remota desde
+            Argentina. Se requieren cinco años de experiencia en recursos humanos y
+            relaciones laborales. La descripción está en español. Postularme ahora.
+            """,
+            metadata={
+                "page_fetched": True,
+                "page_http_status": 200,
+                "application_text": (
+                    "Postulación cerrada. Ya no se aceptan solicitudes para esta vacante."
+                ),
+            },
+        )
+    )
+
+    classification = classify_candidate(candidate, ROMINA_REMOTE_SPANISH_HR)
+
+    assert classification.eligible is False
+    assert any(
+        check.criterion == "active_posting" and check.status == EligibilityStatus.failed
+        for check in classification.eligibility_checks
+    )

@@ -8,6 +8,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, unquote, urlsplit
 from urllib.request import Request, urlopen
 
+from pydantic import HttpUrl
+
 from app.core.config import get_settings
 from app.radar.connectors.base import DiscoveryConnector
 from app.radar.models import (
@@ -15,6 +17,7 @@ from app.radar.models import (
     RawDiscovery,
     SearchProfile,
     SearchQuery,
+    SearchSource,
 )
 
 
@@ -31,6 +34,8 @@ class _SearchRequest:
     lane: str
     include_domains: tuple[str, ...] = ()
     exclude_domains: tuple[str, ...] = ()
+    source_id: str | None = None
+    source_label: str | None = None
 
 
 class TavilyConnector(DiscoveryConnector):
@@ -40,14 +45,38 @@ class TavilyConnector(DiscoveryConnector):
         self.api_key = api_key or get_settings().tavily_api_key
 
     def discover(self, profile: SearchProfile, limit: int) -> list[RawDiscovery]:
+        return self._execute_search_plan(
+            profile=profile,
+            limit=limit,
+            search_plan=_build_search_plan(profile, limit),
+        )
+
+    def discover_source(
+        self, profile: SearchProfile, source: SearchSource, limit: int
+    ) -> list[RawDiscovery]:
+        source_limit = min(limit, source.max_results)
+        return self._execute_search_plan(
+            profile=profile,
+            limit=source_limit,
+            search_plan=_build_source_search_plan(profile, source, source_limit),
+        )
+
+    def _execute_search_plan(
+        self,
+        *,
+        profile: SearchProfile,
+        limit: int,
+        search_plan: list[_SearchRequest],
+    ) -> list[RawDiscovery]:
         if not self.api_key:
-            raise RuntimeError("TAVILY_API_KEY is required to use the Tavily connector.")
+            raise RuntimeError(
+                "TAVILY_API_KEY is required to use the Tavily connector."
+            )
 
         discoveries: list[RawDiscovery] = []
         provider_results_total = 0
         accepted_total = 0
         skipped_invalid_total = 0
-        search_plan = _build_search_plan(profile, limit)
         for index, search_request in enumerate(search_plan, start=1):
             query = search_request.query
             per_query_limit = search_request.max_results
@@ -94,11 +123,14 @@ class TavilyConnector(DiscoveryConnector):
                     RawDiscovery(
                         source=DiscoverySourceKind.tavily,
                         title=item.get("title"),
-                        url=url,
+                        url=HttpUrl(url),
                         raw_text=raw_text,
                         metadata={
                             "query": query.text,
+                            "query_role_tier": query.role_tier,
                             "search_lane": search_request.lane,
+                            "source_id": search_request.source_id,
+                            "source_label": search_request.source_label,
                             "include_domains": list(search_request.include_domains),
                             "exclude_domains": list(search_request.exclude_domains),
                             "score": item.get("score"),
@@ -133,9 +165,27 @@ class TavilyConnector(DiscoveryConnector):
         return discoveries
 
 
-def _build_search_plan(
-    profile: SearchProfile, limit: int
+def _build_source_search_plan(
+    profile: SearchProfile, source: SearchSource, limit: int
 ) -> list[_SearchRequest]:
+    if limit <= 0 or not profile.queries:
+        return []
+    budgets = _allocate_budget(limit, len(profile.queries))
+    return [
+        _SearchRequest(
+            query=query,
+            max_results=min(profile.max_results_per_query, budget),
+            lane=f"source:{source.id}",
+            include_domains=tuple(source.domains),
+            source_id=source.id,
+            source_label=source.label,
+        )
+        for query, budget in zip(profile.queries, budgets, strict=True)
+        if budget > 0
+    ]
+
+
+def _build_search_plan(profile: SearchProfile, limit: int) -> list[_SearchRequest]:
     if limit <= 0 or not profile.queries:
         return []
 
@@ -172,9 +222,7 @@ def _build_search_plan(
         plan.append(
             _SearchRequest(
                 query=profile.queries[len(plan) % len(profile.queries)],
-                max_results=min(
-                    profile.max_results_per_query, exploratory_budget
-                ),
+                max_results=min(profile.max_results_per_query, exploratory_budget),
                 lane="exploratory",
                 exclude_domains=tuple(profile.excluded_source_domains),
             )
@@ -232,7 +280,8 @@ def _post_json(url: str, payload: dict) -> dict:
             return json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"Tavily request failed with HTTP {exc.code}: {detail}") from exc
+        raise RuntimeError(
+            f"Tavily request failed with HTTP {exc.code}: {detail}"
+        ) from exc
     except URLError as exc:
         raise RuntimeError(f"Tavily request failed: {exc.reason}") from exc
-
