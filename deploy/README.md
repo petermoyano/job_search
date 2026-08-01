@@ -4,16 +4,25 @@
 
 - Region: `sa-east-1`
 - ECR repository: `job-search-api`
-- ECS cluster: `default`
-- ECS service: `job-search-api`
-- ECS task definition family: `default-job-search-api`
-- Container name: `Main`
-- Public API:
-  `https://jo-4d640afb7d8a498ba98b7048af302d6c.ecs.sa-east-1.on.aws`
-- CloudWatch log group: `/aws/ecs/default/job-search-api-c8bf`
+- Lambda function: `job-search-api`
+- CloudFormation stack: `job-search-lambda`
+- Lambda log group: `/aws/lambda/job-search-api` with 14-day retention
+- Function URL: read from the `FunctionUrl` stack output
 
-`TAVILY_API_KEY` remains in AWS Secrets Manager. The task definition stores only
-the secret ARN, never the secret value.
+The backend runs on demand and is not attached to a VPC. This avoids an
+always-running load balancer, Fargate task, NAT gateway, and public IPv4
+addresses. The account's current regional concurrency quota is 10, which caps
+parallel Lambda executions. AWS requires all 10 slots to remain unreserved at
+this quota, so a function-level reserved concurrency of one cannot be
+configured unless the account quota is raised above its current value.
+
+`TAVILY_API_KEY` remains in AWS Secrets Manager. CloudFormation resolves the
+secret into the Lambda environment during deployment; secret values are never
+stored in this repository.
+
+The retired ECS Express configuration and verified shutdown record are under
+`deploy/archive/`. `deploy/ecs-task-definition.json` is retained only as a
+historical reconstruction aid.
 
 ## Automatic Deployments
 
@@ -22,44 +31,36 @@ the secret ARN, never the secret value.
 1. Install the frozen dependency set from `uv.lock`.
 2. Run Ruff and Pytest.
 3. Obtain temporary AWS credentials through GitHub OIDC.
-4. Build the Docker image and tag it with the full Git commit SHA.
-5. Push the immutable image to ECR.
-6. Render and register a new ECS task definition revision.
-7. Deploy the revision to the existing ECS service and wait for stability.
-8. Verify the production health endpoint and frontend CORS preflight.
+4. Build `Dockerfile.lambda` for Linux x86_64 without a provenance manifest.
+5. Push the immutable commit-SHA image to ECR.
+6. update the Lambda function to the new image and wait for completion;
+7. verify the Function URL health endpoint and frontend CORS preflight.
 
-The workflow can also be started manually from GitHub's Actions tab with
-`workflow_dispatch`. Production deployments are serialized so two ECS
-deployments cannot run concurrently.
+The workflow can also be started manually from GitHub's Actions tab. Production
+deployments are serialized so two image updates cannot run concurrently.
 
-The IAM role is `job-search-github-deploy`. Its trust and permissions policies
-are stored under `deploy/iam/` for review and reproducibility. The trust policy
-allows only the `production` GitHub environment in
-`petermoyano/job_search` to obtain temporary credentials.
+The IAM role is `job-search-github-deploy`. Its trust and least-privilege
+deployment policy are stored under `deploy/iam/`.
 
-The source-controlled ECS task definition is
-`deploy/ecs-task-definition.json`. Changes to environment variables, CPU,
-memory, logging, or secret references should be committed there instead of
-being edited only in the AWS console.
+## Initial Infrastructure Deployment
 
-## Monitoring Deployments
+The initial Lambda resources are defined in `deploy/lambda-template.yaml`.
+Deploy the stack with an immutable ECR image URI and the
+`CAPABILITY_NAMED_IAM` capability. Subsequent application deployments update
+only the function image through GitHub Actions.
 
-Use GitHub's **Actions** tab to inspect tests, the Docker build, and AWS
-deployment logs.
+The Function URL uses public `NONE` authentication so the browser frontend can
+call it directly. CORS allows only the production frontend origin, but CORS is
+not authentication. Before adding multiple users or valuable paid operations,
+place an authenticated API layer in front of the function or proxy requests
+through an authenticated server-side frontend route.
 
-In AWS, open **Amazon ECS**, select region `sa-east-1`, then navigate to:
+## Monitoring and Rollback
 
-`Clusters` -> `default` -> `Services` -> `job-search-api` -> `Deployments`
+Use Lambda metrics and `/aws/lambda/job-search-api` logs to inspect invocations,
+errors, duration, throttling, and cold starts. The function timeout is five
+minutes; the current regional account concurrency quota is 10.
 
-That page shows the new task-definition revision, canary traffic shift,
-circuit-breaker status, rollback status, and final deployment result.
-
-Use **Amazon ECR** -> `job-search-api` -> `Images` to match the deployed image
-tag to a Git commit SHA. Runtime application logs are under **CloudWatch Logs**
-in `/aws/ecs/default/job-search-api-c8bf`.
-
-## Rollback
-
-ECS already has its deployment circuit breaker and automatic rollback enabled.
-Each deployment uses a unique Git SHA image tag, so a previous version can also
-be restored by deploying an earlier task-definition revision or image tag.
+Every deployment uses an immutable Git SHA image tag. To roll back, update the
+function code to a previously known-good ECR image URI and wait for the function
+update to complete.

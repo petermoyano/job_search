@@ -1,0 +1,61 @@
+{
+  "snapshotPurpose": "Sanitized reconstruction record captured immediately before deleting the ECS Express Mode service.",
+  "capturedAtLocalDate": "2026-07-31",
+  "region": "sa-east-1",
+  "service": {
+    "name": "job-search-api",
+    "arn": "arn:aws:ecs:sa-east-1:535379468109:service/default/job-search-api",
+    "cluster": "arn:aws:ecs:sa-east-1:535379468109:cluster/default",
+    "statusBeforeDeletion": "ACTIVE",
+    "createdAt": "2026-07-28T23:08:18.384000+00:00",
+    "serviceRevisionArn": "arn:aws:ecs:sa-east-1:535379468109:service-revision/default/job-search-api/9347941112545495920",
+    "taskDefinitionArn": "arn:aws:ecs:sa-east-1:535379468109:task-definition/default-job-search-api:4",
+    "cpu": "256",
+    "memory": "512",
+    "healthCheckPath": "/health",
+    "publicEndpoint": "jo-4d640afb7d8a498ba98b7048af302d6c.ecs.sa-east-1.on.aws",
+    "container": {
+      "name": "Main",
+      "image": "535379468109.dkr.ecr.sa-east-1.amazonaws.com/job-search-api:d990812c7fdcba2fe0b3ad14709d2d79c162c36d",
+      "port": 8000,
+      "logGroup": "/aws/ecs/default/job-search-api-c8bf",
+      "logStreamPrefix": "ecs",
+      "secretEnvironmentNames": [
+        "TAVILY_API_KEY"
+      ]
+    },
+    "network": {
+      "securityGroups": [
+        "sg-03ffb11eeed188d9f"
+      ],
+      "subnets": [
+        "subnet-0080a17144f41b247",
+        "subnet-05ccfbc58b80f02a2",
+        "subnet-0794876d67cce9328"
+      ]
+    },
+    "scaling": {
+      "minTaskCount": 1,
+      "maxTaskCount": 1,
+      "autoScalingMetric": "AVERAGE_CPU",
+      "autoScalingTargetValue": 60
+    }
+  },
+  "managedInfrastructureBeforeDeletion": {
+    "loadBalancer": {
+      "name": "ecs-express-gateway-alb-804c4717",
+      "arn": "arn:aws:elasticloadbalancing:sa-east-1:535379468109:loadbalancer/app/ecs-express-gateway-alb-804c4717/e29bcaa7d7837f86"
+    },
+    "elasticIpAllocationIds": [
+      "eipalloc-0256c79ac223c2ca9",
+      "eipalloc-0b76b95b21663927b",
+      "eipalloc-02908a3d8ff6a30ba"
+    ]
+  },
+  "preserve": [
+    "ECR repository and images",
+    "Tavily secret in AWS Secrets Manager",
+    "IAM roles",
+    "Source-controlled task definition and deployment documentation"
+  ]
+}

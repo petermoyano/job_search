@@ -5,21 +5,8 @@ The container intentionally does not require external Postgres by default.
 
 ## Local Docker From Windows 11 + WSL
 
-Use Docker Desktop on Windows with WSL integration enabled for Ubuntu.
-Do not install Docker Engine separately inside WSL.
-
-1. Open Docker Desktop.
-2. Go to Settings -> Resources -> WSL integration.
-3. Enable integration for Ubuntu.
-4. Restart the WSL terminal.
-5. Verify Docker is visible inside WSL:
-
-```bash
-docker --version
-docker compose version
-```
-
-Build the backend image from the repository root:
+Use Docker Desktop with WSL integration enabled for Ubuntu. Build the ordinary
+local image from the repository root:
 
 ```bash
 docker build -t job-search-api:local .
@@ -43,22 +30,29 @@ curl http://localhost:8000/health
 curl http://localhost:8000/radar/profiles
 ```
 
-The Docker image sets:
+The container sets:
 
 - `DATABASE_URL=sqlite:////tmp/job_radar.db`
 - `INITIALIZE_DATABASE=false`
 
 That keeps the radar API usable without external Postgres. The database-backed
-candidate/job analysis endpoints are still part of the codebase, but they are
-not the deployment focus for this v0.
+candidate/job analysis endpoints remain in the codebase, but they are not the
+deployment focus for this v0.
 
-## AWS Direction
+## AWS Lambda Direction
 
-Recommended backend path:
+Production uses an on-demand Lambda container and Function URL:
 
-1. Build the Docker image.
-2. Push it to Amazon ECR.
-3. Run it with Amazon ECS Express Mode.
-4. Store `TAVILY_API_KEY` as an environment variable or secret.
-5. Configure CORS to allow the deployed frontend origin.
-6. See `deploy/README.md` for the GitHub Actions deployment workflow, IAM policies, monitoring, and rollback instructions.
+1. Build `Dockerfile.lambda`, which adds AWS Lambda Web Adapter to the existing
+   FastAPI/uvicorn application without changing application routing.
+2. Push an immutable image to the existing ECR repository.
+3. Deploy `deploy/lambda-template.yaml` outside a VPC.
+4. Resolve `TAVILY_API_KEY` from Secrets Manager into the function environment.
+5. Restrict CORS to the deployed Vercel frontend origin.
+6. Rely on the account's current regional concurrency quota of 10 and retain
+   Lambda logs for 14 days.
+7. Use `.github/workflows/deploy.yml` for subsequent image deployments.
+
+The Function URL is public so the browser can call it directly. CORS limits
+browser origins but is not authentication; add an authenticated API or trusted
+server-side proxy before exposing paid operations to additional users.

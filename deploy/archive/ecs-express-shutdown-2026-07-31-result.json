@@ -1,0 +1,21 @@
+{
+  "serviceArn": "arn:aws:ecs:sa-east-1:535379468109:service/default/job-search-api",
+  "expressDeletionRequested": true,
+  "verifiedAfterDeletion": {
+    "listedEcsServices": 0,
+    "runningEcsTasks": 0,
+    "loadBalancers": 0,
+    "targetGroups": 0,
+    "elasticIpAllocations": 0,
+    "ecsScalableTargets": 0
+  },
+  "preservedResources": {
+    "ecrRepository": "job-search-api",
+    "tavilySecret": "job-search/tavily-api-key",
+    "historicalLogGroup": "/aws/ecs/default/job-search-api-c8bf"
+  },
+  "notes": [
+    "The AWS CLI resource monitor timed out after ten minutes, but independent service API checks confirmed that every billable Express runtime and network resource was removed.",
+    "The historical CloudWatch log group contained approximately 1.6 MB at verification time and had no explicit retention period."
+  ]
+}

@@ -14,11 +14,7 @@ env:
   AWS_REGION: sa-east-1
   AWS_ROLE_ARN: arn:aws:iam::535379468109:role/job-search-github-deploy
   ECR_REPOSITORY: job-search-api
-  ECS_CLUSTER: default
-  ECS_SERVICE: job-search-api
-  ECS_TASK_DEFINITION: deploy/ecs-task-definition.json
-  ECS_CONTAINER_NAME: Main
-  API_BASE_URL: https://jo-4d640afb7d8a498ba98b7048af302d6c.ecs.sa-east-1.on.aws
+  LAMBDA_FUNCTION: job-search-api
   FRONTEND_ORIGIN: https://job-search-fe.vercel.app
 
 jobs:
@@ -53,7 +49,7 @@ jobs:
     timeout-minutes: 30
     environment:
       name: production
-      url: https://jo-4d640afb7d8a498ba98b7048af302d6c.ecs.sa-east-1.on.aws
+      url: ${{ steps.function-url.outputs.url }}
     permissions:
       contents: read
       id-token: write
@@ -80,30 +76,48 @@ jobs:
           IMAGE_TAG: ${{ github.sha }}
         run: |
           IMAGE_URI="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
-          docker build --pull --tag "$IMAGE_URI" .
+          docker buildx build \
+            --file Dockerfile.lambda \
+            --platform linux/amd64 \
+            --provenance=false \
+            --pull \
+            --load \
+            --tag "$IMAGE_URI" \
+            .
           docker push "$IMAGE_URI"
           echo "image=$IMAGE_URI" >> "$GITHUB_OUTPUT"
 
-      - name: Render task definition
-        id: task-definition
-        uses: aws-actions/amazon-ecs-render-task-definition@138c24f321fdbdf7edee4a685519d253cae2cdea # v1.9.0
-        with:
-          task-definition: ${{ env.ECS_TASK_DEFINITION }}
-          container-name: ${{ env.ECS_CONTAINER_NAME }}
-          image: ${{ steps.build-image.outputs.image }}
+      - name: Deploy Lambda image
+        run: |
+          aws lambda update-function-code \
+            --function-name "$LAMBDA_FUNCTION" \
+            --image-uri "${{ steps.build-image.outputs.image }}" \
+            --query '{FunctionName:FunctionName,Version:Version,State:State}'
+          aws lambda wait function-updated \
+            --function-name "$LAMBDA_FUNCTION"
 
-      - name: Deploy task definition
-        uses: aws-actions/amazon-ecs-deploy-task-definition@c465972ecbd160473f22e683363b422a5412a3de # v2.6.3
-        with:
-          task-definition: ${{ steps.task-definition.outputs.task-definition }}
-          cluster: ${{ env.ECS_CLUSTER }}
-          service: ${{ env.ECS_SERVICE }}
-          wait-for-service-stability: true
-          wait-max-delay-seconds: 15
+      - name: Read Function URL
+        id: function-url
+        run: |
+          FUNCTION_URL="$(aws lambda get-function-url-config \
+            --function-name "$LAMBDA_FUNCTION" \
+            --query FunctionUrl \
+            --output text)"
+          echo "url=${FUNCTION_URL%/}" >> "$GITHUB_OUTPUT"
 
       - name: Verify production health and CORS
+        env:
+          API_BASE_URL: ${{ steps.function-url.outputs.url }}
         run: |
-          HEALTH_RESPONSE="$(curl --fail --silent --show-error "$API_BASE_URL/health")"
+          HEALTH_RESPONSE="$(curl \
+            --fail \
+            --silent \
+            --show-error \
+            --retry 4 \
+            --retry-all-errors \
+            --retry-delay 3 \
+            --max-time 30 \
+            "$API_BASE_URL/health")"
           test "$HEALTH_RESPONSE" = '{"status":"ok"}'
 
           HEADER_FILE="$(mktemp)"
@@ -123,12 +137,14 @@ jobs:
             "$HEADER_FILE"
 
       - name: Add deployment summary
+        env:
+          API_BASE_URL: ${{ steps.function-url.outputs.url }}
         run: |
           {
             echo "### Production deployment"
             echo
             echo "- Commit: \`$GITHUB_SHA\`"
             echo "- Image: \`${{ steps.build-image.outputs.image }}\`"
-            echo "- Service: \`$ECS_CLUSTER/$ECS_SERVICE\`"
+            echo "- Function: \`$LAMBDA_FUNCTION\`"
             echo "- API: $API_BASE_URL"
           } >> "$GITHUB_STEP_SUMMARY"
