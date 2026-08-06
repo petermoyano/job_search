@@ -1,8 +1,24 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _get_ssm_parameter(name: str) -> str:
+    import boto3  # type: ignore[import-untyped]
+
+    response = boto3.client("ssm").get_parameter(Name=name, WithDecryption=True)
+    value = response.get("Parameter", {}).get("Value")
+    if not isinstance(value, str) or not value:
+        raise RuntimeError(f"SSM parameter {name!r} did not contain a value")
+    return value
+
+
+def _normalize_database_url(value: str) -> str:
+    if value.startswith("postgresql://"):
+        return value.replace("postgresql://", "postgresql+psycopg://", 1)
+    return value
 
 
 class Settings(BaseSettings):
@@ -11,7 +27,8 @@ class Settings(BaseSettings):
     )
 
     app_env: Literal["local", "test", "production"] = "local"
-    database_url: str = "sqlite:///./job_radar.db"
+    database_url: str = Field(default="sqlite:///./job_radar.db", repr=False)
+    database_url_ssm_parameter: str | None = Field(default=None, repr=False)
     openai_api_key: str | None = Field(default=None, repr=False)
     tavily_api_key: str | None = Field(default=None, repr=False)
     llm_model: str = "gpt-4.1-mini"
@@ -23,6 +40,14 @@ class Settings(BaseSettings):
             "https://job-search-fe.vercel.app",
         ]
     )
+
+    @model_validator(mode="after")
+    def resolve_database_url(self) -> "Settings":
+        database_url = self.database_url
+        if self.database_url_ssm_parameter:
+            database_url = _get_ssm_parameter(self.database_url_ssm_parameter)
+        self.database_url = _normalize_database_url(database_url)
+        return self
 
 
 @lru_cache

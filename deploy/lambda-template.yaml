@@ -11,6 +11,10 @@ Parameters:
   TavilySecretId:
     Type: String
     Default: job-search/tavily-api-key
+  DatabaseUrlParameterName:
+    Type: String
+    Default: /job-search/database-url
+    Description: Name of the SSM SecureString containing the pooled PostgreSQL URL.
 
 Resources:
   BackendLogGroup:
@@ -35,6 +39,15 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ReadDatabaseUrlParameter
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub >-
+                  arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${DatabaseUrlParameterName}
       Tags:
         - Key: Application
           Value: job-search
@@ -58,7 +71,7 @@ Resources:
       Environment:
         Variables:
           APP_ENV: production
-          DATABASE_URL: sqlite:////tmp/job_radar.db
+          DATABASE_URL_SSM_PARAMETER: !Ref DatabaseUrlParameterName
           INITIALIZE_DATABASE: "false"
           CORS_ORIGINS: !Sub '["http://localhost:3000","http://127.0.0.1:3000","${FrontendOrigin}"]'
           TAVILY_API_KEY: !Sub '{{resolve:secretsmanager:${TavilySecretId}:SecretString}}'
