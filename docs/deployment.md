@@ -23,7 +23,7 @@ docker run --rm \
   job-search-api:local
 ```
 
-Check the API:
+Check the API's health:
 
 ```bash
 curl http://localhost:8000/health
