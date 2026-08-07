@@ -1,4 +1,5 @@
 import os
+from types import SimpleNamespace
 from uuid import uuid4
 
 os.environ["DATABASE_URL"] = "sqlite:///./test_job_radar_v2.db"
@@ -108,6 +109,11 @@ def test_cors_allows_production_frontend() -> None:
 
 def test_remote_radar_persists_feedback_and_suppresses_repeats(monkeypatch) -> None:
     run_token = uuid4().hex
+
+    monkeypatch.setattr(
+        "app.radar.connectors.tavily.get_settings",
+        lambda: SimpleNamespace(tavily_api_key="test-api-key"),
+    )
 
     def fake_post_json(_url, payload):
         query = payload["query"]

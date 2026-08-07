@@ -90,15 +90,6 @@ Resources:
       TargetFunctionArn: !GetAtt BackendFunction.Arn
       AuthType: NONE
       InvokeMode: BUFFERED
-      Cors:
-        AllowCredentials: false
-        AllowHeaders:
-          - "*"
-        AllowMethods:
-          - "*"
-        AllowOrigins:
-          - !Ref FrontendOrigin
-        MaxAge: 86400
 
   PublicFunctionUrlPermission:
     Type: AWS::Lambda::Permission
