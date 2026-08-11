@@ -61,6 +61,10 @@ Use Lambda metrics and `/aws/lambda/job-search-api` logs to inspect invocations,
 errors, duration, throttling, and cold starts. The function timeout is five
 minutes; the current regional account concurrency quota is 10.
 
+See [`docs/observability.md`](../docs/observability.md) for the console paths,
+Live Tail instructions, CLI command, event names, and example Logs Insights
+queries.
+
 Every deployment uses an immutable Git SHA image tag. To roll back, update the
 function code to a previously known-good ECR image URI and wait for the function
 update to complete.

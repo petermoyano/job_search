@@ -1,3 +1,4 @@
+import logging
 import os
 from types import SimpleNamespace
 from uuid import uuid4
@@ -55,6 +56,21 @@ def test_list_radar_profiles() -> None:
     assert "peter-latam-remote-ai-fullstack-product" in profile_ids
     assert "romina-remote-spanish-hr" in profile_ids
     assert "romina-mendoza-hr-onsite-hybrid" in profile_ids
+
+
+def test_http_requests_include_correlation_id(caplog) -> None:
+    with caplog.at_level(logging.INFO, logger="app.main"):
+        with TestClient(app) as client:
+            response = client.get(
+                "/radar/profiles", headers={"X-Request-ID": "frontend-request-123"}
+            )
+
+    assert response.status_code == 200
+    assert response.headers["x-request-id"] == "frontend-request-123"
+    assert (
+        "event=http_request_completed request_id=frontend-request-123 "
+        "method=GET path=/radar/profiles status_code=200" in caplog.text
+    )
 
 
 def test_run_radar_with_sample_source() -> None:

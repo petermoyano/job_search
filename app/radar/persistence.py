@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
@@ -16,6 +18,7 @@ from app.schemas import RadarFeedbackUpsert
 
 
 CLASSIFIER_VERSION = "romina-eligibility-v1"
+LOGGER = logging.getLogger(__name__)
 
 
 def load_suppressed_keys(db: Session, profile_id: str) -> set[str]:
@@ -38,6 +41,13 @@ def load_suppressed_keys(db: Session, profile_id: str) -> set[str]:
     for identity_key, canonical_url in rows:
         keys.add(identity_key)
         keys.add(f"url:{canonical_url}")
+    LOGGER.info(
+        "event=radar_suppression_keys_loaded profile_id=%s presented_rows=%s "
+        "suppression_keys=%s",
+        profile_id,
+        len(rows),
+        len(keys),
+    )
     return keys
 
 
@@ -96,6 +106,16 @@ def persist_discovery_result(
                 classifier_version=CLASSIFIER_VERSION,
             )
         )
+    LOGGER.info(
+        "event=radar_run_staged run_id=%s profile_id=%s connector=%s "
+        "presented=%s excluded=%s evaluations=%s",
+        run.id,
+        profile.id,
+        connector,
+        len(result.items),
+        len(result.excluded_items),
+        len(result.items) + len(result.excluded_items),
+    )
     return run
 
 
@@ -116,6 +136,7 @@ def upsert_feedback(
         "reason_codes": [reason.value for reason in payload.reason_codes],
         "notes": payload.notes,
     }
+    operation = "created" if feedback is None else "updated"
     if feedback is None:
         feedback = RadarFeedback(
             opportunity_id=opportunity.id,
@@ -127,6 +148,16 @@ def upsert_feedback(
         for key, value in values.items():
             setattr(feedback, key, value)
     db.flush()
+    LOGGER.info(
+        "event=radar_feedback_staged operation=%s opportunity_id=%s "
+        "profile_id=%s action=%s reason_count=%s has_notes=%s",
+        operation,
+        opportunity.id,
+        payload.profile_id,
+        payload.action.value,
+        len(payload.reason_codes),
+        bool(payload.notes),
+    )
     return feedback
 
 
@@ -193,6 +224,14 @@ def list_profile_opportunities(
         )
         if len(output) >= limit:
             break
+    LOGGER.info(
+        "event=radar_history_loaded profile_id=%s include_excluded=%s "
+        "requested_limit=%s returned=%s",
+        profile_id,
+        include_excluded,
+        limit,
+        len(output),
+    )
     return output
 
 

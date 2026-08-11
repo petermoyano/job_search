@@ -114,6 +114,15 @@ def run_radar(
         requested_limit=payload.limit,
     )
     db.commit()
+    LOGGER.info(
+        "event=radar_run_committed run_id=%s profile_id=%s presented=%s "
+        "excluded=%s sources_consulted=%s",
+        result.run_id,
+        result.profile_id,
+        len(result.items),
+        len(result.excluded_items),
+        len(result.source_summaries),
+    )
 
     verdict_counts = _radar_verdict_counts(result)
     LOGGER.info(
@@ -142,7 +151,14 @@ def list_radar_runs(
     statement = select(RadarRun).order_by(desc(RadarRun.created_at)).limit(limit)
     if profile_id:
         statement = statement.where(RadarRun.profile_id == profile_id)
-    return list(db.scalars(statement).all())
+    runs = list(db.scalars(statement).all())
+    LOGGER.info(
+        "event=radar_runs_loaded profile_id=%s requested_limit=%s returned=%s",
+        profile_id or "all",
+        limit,
+        len(runs),
+    )
+    return runs
 
 
 @router.get("/radar/opportunities", response_model=list[RadarOpportunityRead])
@@ -196,6 +212,15 @@ def save_radar_feedback(
     feedback = upsert_feedback(db, opportunity=opportunity, payload=payload)
     db.commit()
     db.refresh(feedback)
+    LOGGER.info(
+        "event=radar_feedback_saved opportunity_id=%s profile_id=%s action=%s "
+        "reason_count=%s has_notes=%s",
+        opportunity_id,
+        payload.profile_id,
+        payload.action.value,
+        len(payload.reason_codes),
+        bool(payload.notes),
+    )
     return feedback
 
 
