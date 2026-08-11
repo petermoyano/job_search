@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.api.routes import router
 from app.core.config import get_settings
@@ -72,7 +73,11 @@ async def log_http_request(request: Request, call_next):
             request.url.path,
             (perf_counter() - started_at) * 1000,
         )
-        raise
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "El servidor no pudo completar la solicitud."},
+            headers={"X-Request-ID": request_id},
+        )
 
     response.headers["X-Request-ID"] = request_id
     LOGGER.info(
@@ -90,6 +95,7 @@ async def log_http_request(request: Request, call_next):
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
+    allow_origin_regex=settings.cors_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

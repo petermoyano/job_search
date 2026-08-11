@@ -16,6 +16,7 @@ env:
   ECR_REPOSITORY: job-search-api
   LAMBDA_FUNCTION: job-search-api
   FRONTEND_ORIGIN: https://job-search-fe.vercel.app
+  FRONTEND_PREVIEW_ORIGIN: https://job-search-preview-petermoyanos-projects.vercel.app
 
 jobs:
   test:
@@ -121,20 +122,22 @@ jobs:
           test "$HEALTH_RESPONSE" = '{"status":"ok"}'
 
           HEADER_FILE="$(mktemp)"
-          curl \
-            --fail \
-            --silent \
-            --show-error \
-            --request OPTIONS \
-            --header "Origin: $FRONTEND_ORIGIN" \
-            --header "Access-Control-Request-Method: POST" \
-            --header "Access-Control-Request-Headers: content-type" \
-            --dump-header "$HEADER_FILE" \
-            --output /dev/null \
-            "$API_BASE_URL/radar/runs"
-          grep --fixed-strings --ignore-case \
-            "access-control-allow-origin: $FRONTEND_ORIGIN" \
-            "$HEADER_FILE"
+          for origin in "$FRONTEND_ORIGIN" "$FRONTEND_PREVIEW_ORIGIN"; do
+            curl \
+              --fail \
+              --silent \
+              --show-error \
+              --request OPTIONS \
+              --header "Origin: $origin" \
+              --header "Access-Control-Request-Method: POST" \
+              --header "Access-Control-Request-Headers: content-type" \
+              --dump-header "$HEADER_FILE" \
+              --output /dev/null \
+              "$API_BASE_URL/radar/runs"
+            grep --fixed-strings --ignore-case \
+              "access-control-allow-origin: $origin" \
+              "$HEADER_FILE"
+          done
 
       - name: Add deployment summary
         env:

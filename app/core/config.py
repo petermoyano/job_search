@@ -40,6 +40,9 @@ class Settings(BaseSettings):
             "https://job-search-fe.vercel.app",
         ]
     )
+    cors_origin_regex: str | None = (
+        r"^https://job-search-[a-z0-9-]+-petermoyanos-projects\.vercel\.app$"
+    )
 
     @model_validator(mode="after")
     def resolve_database_url(self) -> "Settings":

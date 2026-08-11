@@ -8,6 +8,10 @@ Parameters:
   FrontendOrigin:
     Type: String
     Default: https://job-search-fe.vercel.app
+  FrontendOriginRegex:
+    Type: String
+    Default: '^https://job-search-[a-z0-9-]+-petermoyanos-projects[.]vercel[.]app$'
+    Description: Narrow allowlist pattern for this project's Vercel deployment URLs.
   TavilySecretId:
     Type: String
     Default: job-search/tavily-api-key
@@ -74,6 +78,7 @@ Resources:
           DATABASE_URL_SSM_PARAMETER: !Ref DatabaseUrlParameterName
           INITIALIZE_DATABASE: "false"
           CORS_ORIGINS: !Sub '["http://localhost:3000","http://127.0.0.1:3000","${FrontendOrigin}"]'
+          CORS_ORIGIN_REGEX: !Ref FrontendOriginRegex
           TAVILY_API_KEY: !Sub '{{resolve:secretsmanager:${TavilySecretId}:SecretString}}'
           AWS_LWA_PORT: "8000"
           AWS_LWA_READINESS_CHECK_PATH: /health

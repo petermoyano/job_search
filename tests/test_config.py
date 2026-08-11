@@ -1,4 +1,5 @@
 from app.core import config
+from app.db.session import _engine_kwargs
 
 
 def test_settings_resolves_database_url_from_ssm(monkeypatch) -> None:
@@ -31,3 +32,15 @@ def test_settings_normalizes_postgresql_driver() -> None:
     )
 
     assert settings.database_url.startswith("postgresql+psycopg://")
+
+
+def test_sqlite_engine_allows_test_thread_sharing() -> None:
+    assert _engine_kwargs("sqlite:///./test.db") == {
+        "connect_args": {"check_same_thread": False}
+    }
+
+
+def test_postgres_engine_checks_pooled_connections_before_use() -> None:
+    assert _engine_kwargs("postgresql+psycopg://example") == {
+        "pool_pre_ping": True
+    }

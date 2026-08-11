@@ -50,7 +50,9 @@ Deploy the stack with an immutable ECR image URI and the
 only the function image through GitHub Actions.
 
 The Function URL uses public `NONE` authentication so the browser frontend can
-call it directly. CORS allows only the production frontend origin, but CORS is
+call it directly. CORS allows the stable production frontend origin and this
+project's deployment URLs under the `petermoyanos-projects.vercel.app` scope;
+unrelated Vercel projects remain blocked. CORS is
 not authentication. Before adding multiple users or valuable paid operations,
 place an authenticated API layer in front of the function or proxy requests
 through an authenticated server-side frontend route.

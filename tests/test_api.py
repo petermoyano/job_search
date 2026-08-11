@@ -123,6 +123,60 @@ def test_cors_allows_production_frontend() -> None:
     )
 
 
+def test_cors_allows_vercel_project_deployment() -> None:
+    origin = "https://job-search-hew772mhh-petermoyanos-projects.vercel.app"
+    with TestClient(app) as client:
+        response = client.options(
+            "/radar/runs",
+            headers={
+                "Origin": origin,
+                "Access-Control-Request-Method": "POST",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == origin
+
+
+def test_cors_rejects_unrelated_vercel_origin() -> None:
+    with TestClient(app) as client:
+        response = client.options(
+            "/radar/runs",
+            headers={
+                "Origin": "https://unrelated-project.vercel.app",
+                "Access-Control-Request-Method": "POST",
+            },
+        )
+
+    assert response.status_code == 400
+    assert "access-control-allow-origin" not in response.headers
+
+
+def test_unhandled_errors_preserve_cors_and_request_id(monkeypatch) -> None:
+    def raise_unexpected_error(*_args, **_kwargs):
+        raise RuntimeError("database unavailable")
+
+    monkeypatch.setattr(
+        "app.api.routes.list_profile_opportunities", raise_unexpected_error
+    )
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get(
+            "/radar/opportunities",
+            params={"profile_id": "romina-remote-spanish-hr"},
+            headers={
+                "Origin": "https://job-search-fe.vercel.app",
+                "X-Request-ID": "failed-request-123",
+            },
+        )
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "El servidor no pudo completar la solicitud."}
+    assert response.headers["x-request-id"] == "failed-request-123"
+    assert response.headers["access-control-allow-origin"] == (
+        "https://job-search-fe.vercel.app"
+    )
+
+
 def test_remote_radar_persists_feedback_and_suppresses_repeats(monkeypatch) -> None:
     run_token = uuid4().hex
 
