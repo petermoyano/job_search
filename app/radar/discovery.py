@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from time import perf_counter
 
 from app.radar.classify import classify_candidate
 from app.radar.connectors.base import DiscoveryConnector
@@ -16,6 +17,7 @@ from app.radar.models import (
     NormalizedJobCandidate,
     RawDiscovery,
     SearchProfile,
+    SearchSource,
     SourceRunSummary,
 )
 from app.radar.normalize import normalize_discovery
@@ -32,18 +34,10 @@ def run_discovery(
     hydrate: bool = True,
 ) -> DiscoveryRunResult:
     suppressed = suppressed_keys or set()
-    ordered_connector = next(
-        (
-            connector
-            for connector in connectors
-            if profile.ordered_sources and hasattr(connector, "discover_source")
-        ),
-        None,
-    )
-    if ordered_connector is not None:
+    if profile.ordered_sources:
         return _run_ordered_discovery(
             profile=profile,
-            connector=ordered_connector,
+            connectors=connectors,
             limit=limit,
             suppressed_keys=suppressed,
             hydrate=hydrate,
@@ -60,7 +54,7 @@ def run_discovery(
 def _run_ordered_discovery(
     *,
     profile: SearchProfile,
-    connector: DiscoveryConnector,
+    connectors: list[DiscoveryConnector],
     limit: int,
     suppressed_keys: set[str],
     hydrate: bool,
@@ -88,6 +82,7 @@ def _run_ordered_discovery(
         ),
         key=lambda item: item.order,
     )
+    completed_sources = 0
 
     for source_index, source in enumerate(ordered_sources):
         if len(displayed) >= target:
@@ -99,8 +94,54 @@ def _run_ordered_discovery(
             source.order,
             source_limit,
         )
-        discover_source = getattr(connector, "discover_source")
-        raw_items = discover_source(profile, source, source_limit)
+        connector = _connector_for_source(connectors, source)
+        if connector is None:
+            summaries.append(
+                SourceRunSummary(
+                    source_id=source.id,
+                    source_label=source.label,
+                    acquisition_mode=source.acquisition_mode,
+                    status="failed",
+                    error_code="source_not_supported",
+                    continued_to_next=True,
+                )
+            )
+            continue
+        started = perf_counter()
+        try:
+            raw_items = connector.discover_source(profile, source, source_limit)
+        except RuntimeError as exc:
+            summaries.append(
+                SourceRunSummary(
+                    source_id=source.id,
+                    source_label=source.label,
+                    acquisition_mode=source.acquisition_mode,
+                    status="failed",
+                    error_code=_provider_error_code(exc),
+                    duration_ms=round((perf_counter() - started) * 1000),
+                    continued_to_next=True,
+                )
+            )
+            LOGGER.warning("Ordered source failed: source=%s error=%s", source.id, exc)
+            continue
+        completed_sources += 1
+        duration_ms = round((perf_counter() - started) * 1000)
+        raw_items = [
+            item.model_copy(
+                update={
+                    "metadata": {
+                        **item.metadata,
+                        "source_id": source.id,
+                        "source_label": source.label,
+                        "acquisition_mode": source.acquisition_mode.value,
+                        "source_attribution_url": (
+                            str(source.attribution_url) if source.attribution_url else None
+                        ),
+                    }
+                }
+            )
+            for item in raw_items
+        ]
         raw_total += len(raw_items)
         classified = _classify_raw_batch(
             profile=profile,
@@ -120,13 +161,10 @@ def _run_ordered_discovery(
                 excluded.append(item)
         source_presented = len(displayed) - displayed_before
         target_reached = len(displayed) >= target
-        threshold_met = len(source_new) >= source.min_qualified_to_stop
         source_is_last = source_index == len(ordered_sources) - 1
         stop_reason = (
             "target_reached"
             if target_reached
-            else "source_threshold_met"
-            if threshold_met
             else "sources_exhausted"
             if source_is_last
             else None
@@ -142,6 +180,8 @@ def _run_ordered_discovery(
             continued_to_next=stop_reason is None,
             stop_reason=stop_reason,
             excluded_count=len(classified) - source_presented,
+            acquisition_mode=source.acquisition_mode,
+            duration_ms=duration_ms,
         )
         summaries.append(summary)
         LOGGER.info(
@@ -153,8 +193,14 @@ def _run_ordered_discovery(
             summary.qualified_count,
             summary.new_qualified_count,
         )
-        if stop_reason is not None:
+        if target_reached:
             break
+
+    if ordered_sources and completed_sources == 0:
+        errors = ", ".join(
+            f"{summary.source_id}:{summary.error_code}" for summary in summaries
+        )
+        raise RuntimeError(f"all_configured_sources_failed: {errors}")
 
     _sort_classified(displayed)
     _sort_classified(excluded)
@@ -236,6 +282,29 @@ def _run_connector_discovery(
         source_summaries=summaries,
     )
 
+
+
+def _connector_for_source(
+    connectors: list[DiscoveryConnector], source: SearchSource
+) -> DiscoveryConnector | None:
+    exact = next(
+        (connector for connector in connectors if source.id in connector.source_ids),
+        None,
+    )
+    if exact is not None:
+        return exact
+    fallback = next(
+        (connector for connector in connectors if connector.handles_unregistered_sources),
+        None,
+    )
+    if fallback is not None:
+        return fallback
+    return connectors[0] if len(connectors) == 1 else None
+
+
+def _provider_error_code(exc: RuntimeError) -> str:
+    value = str(exc).partition(":")[0].strip()
+    return value or "provider_error"
 
 def _classify_raw_batch(
     *,

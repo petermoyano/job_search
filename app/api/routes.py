@@ -7,8 +7,11 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.db.session import get_db
 from app.graph.workflow import run_job_analysis_workflow
+from app.radar.connectors.himalayas import HimalayasConnector
+from app.radar.connectors.remote_ok import RemoteOkConnector
 from app.radar.connectors.sample import SampleConnector
 from app.radar.connectors.tavily import TavilyConnector
+from app.radar.connectors.we_work_remotely import WeWorkRemotelyConnector
 from app.radar.discovery import run_discovery
 from app.radar.models import (
     DiscoveryRunResult,
@@ -135,7 +138,7 @@ def run_radar(
         if profile.eligibility_policy is not None
         else set()
     )
-    connectors = [_radar_connector_for(payload.source)]
+    connectors = _radar_connectors_for(payload.source)
     try:
         result = run_discovery(
             profile=profile,
@@ -452,11 +455,16 @@ def _radar_verdict_counts(result: DiscoveryRunResult) -> dict[str, int]:
     return counts
 
 
-def _radar_connector_for(source: str):
+def _radar_connectors_for(source: str):
     if source == "sample":
-        return SampleConnector()
+        return [SampleConnector()]
     if source == "tavily":
-        return TavilyConnector()
+        return [TavilyConnector()]
+    if source == "configured":
+        return [
+            HimalayasConnector(), WeWorkRemotelyConnector(),
+            RemoteOkConnector(), TavilyConnector(),
+        ]
     raise HTTPException(status_code=400, detail=f"Unsupported radar source: {source}")
 
 

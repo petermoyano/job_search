@@ -12,6 +12,16 @@ class DiscoverySourceKind(StrEnum):
     tavily = "tavily"
     greenhouse = "greenhouse"
     lever = "lever"
+    himalayas = "himalayas"
+    remote_ok = "remote_ok"
+    we_work_remotely = "we_work_remotely"
+
+
+class AcquisitionMode(StrEnum):
+    web_search = "web_search"
+    himalayas_api = "himalayas_api"
+    remote_ok_api = "remote_ok_api"
+    we_work_remotely_rss = "we_work_remotely_rss"
 
 
 class RadarVerdict(StrEnum):
@@ -76,6 +86,8 @@ class SearchSource(BaseModel):
     max_results: int = Field(default=5, ge=1, le=20)
     min_qualified_to_stop: int = Field(default=3, ge=1, le=10)
     enabled: bool = True
+    acquisition_mode: AcquisitionMode = AcquisitionMode.web_search
+    attribution_url: HttpUrl | None = None
 
 
 class EligibilityPolicy(BaseModel):
@@ -210,6 +222,10 @@ class SourceRunSummary(BaseModel):
     excluded_count: int = 0
     continued_to_next: bool = False
     stop_reason: str | None = None
+    acquisition_mode: AcquisitionMode = AcquisitionMode.web_search
+    status: str = "completed"
+    error_code: str | None = None
+    duration_ms: int = Field(default=0, ge=0)
 
 
 class DiscoveryRunResult(BaseModel):

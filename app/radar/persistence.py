@@ -17,7 +17,7 @@ from app.radar.models import ClassifiedDiscovery, DiscoveryRunResult, SearchProf
 from app.schemas import RadarFeedbackUpsert
 
 
-CLASSIFIER_VERSION = "romina-eligibility-v1"
+CLASSIFIER_VERSION = "romina-eligibility-v2-structured-sources"
 LOGGER = logging.getLogger(__name__)
 
 

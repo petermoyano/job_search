@@ -259,7 +259,7 @@ def assess_candidate_eligibility(
         application_text, normalized_text
     )
     seniority, seniority_status, seniority_evidence = _detect_seniority(
-        normalized_title, normalized_text, profile
+        candidate, normalized_title, normalized_text, profile
     )
     activity, activity_evidence = _detect_activity(candidate)
     published_at = _parse_datetime(candidate.metadata.get("published_date"))
@@ -590,12 +590,14 @@ def _detect_modality(
     hybrid = _hits(normalized, HYBRID_TERMS)
     onsite = _hits(normalized, ONSITE_TERMS)
     remote = _hits(normalized, REMOTE_TERMS)
-    if strong_remote and not hybrid and not onsite:
-        return WorkModality.remote, strong_remote
     if hybrid or (remote and onsite):
         return WorkModality.hybrid, [*hybrid, *remote[:1], *onsite[:1]]
     if onsite:
         return WorkModality.onsite, onsite
+    if candidate.metadata.get("provider_remote_claim_trusted") is True:
+        return WorkModality.remote, ["trusted provider remote classification"]
+    if strong_remote:
+        return WorkModality.remote, strong_remote
     if remote:
         return WorkModality.remote, remote
     return WorkModality.unknown, []
@@ -665,6 +667,19 @@ def _detect_hiring_scope(
     restricted_hits = _hits(normalized, restricted_terms)
     if restricted_hits:
         return "restricted", EligibilityStatus.failed, restricted_hits
+    provider_locations = candidate.metadata.get("applicant_locations")
+    if candidate.metadata.get("provider_worldwide") is True:
+        return "global", EligibilityStatus.passed, ["provider: worldwide"]
+    if isinstance(provider_locations, list) and provider_locations:
+        locations = [str(value) for value in provider_locations if value]
+        normalized_locations = normalize_for_matching(" ".join(locations))
+        provider_hits = _hits(
+            normalized_locations,
+            [*policy.eligible_remote_regions, "argentina", "latin america", "latam"],
+        )
+        if provider_hits:
+            return "argentina_latam", EligibilityStatus.passed, locations[:5]
+        return "restricted", EligibilityStatus.failed, locations[:5]
     if eligible_hits:
         return "argentina_latam_or_global", EligibilityStatus.passed, eligible_hits
     return None, EligibilityStatus.unknown, []
@@ -691,6 +706,28 @@ def _parse_salary_number(value: str) -> int | None:
 def _detect_usd_monthly_salary(
     candidate: NormalizedJobCandidate,
 ) -> tuple[str | None, int | None, int | None]:
+    currency = str(candidate.metadata.get("salary_currency") or "").upper()
+    provider_min = candidate.metadata.get("salary_min")
+    provider_max = candidate.metadata.get("salary_max")
+    provider_values = [
+        round(value)
+        for value in [provider_min, provider_max]
+        if isinstance(value, (int, float)) and value > 0
+    ]
+    if currency == "USD" and provider_values:
+        period = str(candidate.metadata.get("salary_period") or "annual").casefold()
+        if period in {"annual", "year", "yearly", "per year"}:
+            monthly = [round(value / 12) for value in provider_values]
+        elif period in {"hour", "hourly", "per hour"}:
+            monthly = [round(value * 173) for value in provider_values]
+        elif period in {"week", "weekly", "per week"}:
+            monthly = [round(value * 4.33) for value in provider_values]
+        elif period in {"day", "daily", "per day"}:
+            monthly = [round(value * 21.67) for value in provider_values]
+        else:
+            monthly = provider_values
+        evidence = f"Provider salary: USD {min(provider_values)}-{max(provider_values)} {period}"
+        return evidence, min(monthly), max(monthly)
     text = "\n".join(
         part
         for part in [
@@ -712,6 +749,21 @@ def _detect_usd_monthly_salary(
             continue
         context = text[max(0, match.start() - 50) : min(len(text), match.end() + 60)]
         normalized_context = normalize_for_matching(context)
+        if _hits(
+            normalized_context,
+            [
+                "budget",
+                "presupuesto",
+                "allowance",
+                "stipend",
+                "bonus",
+                "bono",
+                "reward",
+                "reimbursement",
+                "reintegro",
+            ],
+        ):
+            continue
         if _hits(normalized_context, ["hora", "hour", "diario", "daily", "por día", "por dia"]):
             continue
         if _hits(normalized_context, ["anual", "annual", "per year", "por año", "por ano"]):
@@ -755,6 +807,7 @@ def _detect_application_language(
 
 
 def _detect_seniority(
+    candidate: NormalizedJobCandidate,
     normalized_title: str,
     normalized_text: str,
     profile: SearchProfile,
@@ -784,7 +837,16 @@ def _detect_seniority(
             EligibilityStatus.failed,
             [*title_rejections, *body_rejections],
         )
-    senior_hits = _hits(normalized_title, SENIOR_TERMS)
+    provider_seniority = normalize_for_matching(
+        str(candidate.metadata.get("seniority") or "")
+    )
+    provider_rejections = _hits(provider_seniority, rejected_terms)
+    if provider_rejections:
+        return "junior_or_entry", EligibilityStatus.failed, provider_rejections
+    senior_hits = [
+        *_hits(normalized_title, SENIOR_TERMS),
+        *_hits(provider_seniority, SENIOR_TERMS),
+    ]
     if senior_hits:
         return "semi_senior_or_above", EligibilityStatus.passed, senior_hits
     years_match = re.search(
@@ -820,6 +882,11 @@ def _detect_activity(
             )
     if closed_hits:
         return JobActivityStatus.closed, closed_hits
+    if (
+        candidate.metadata.get("provider_status") == "active"
+        and candidate.metadata.get("application_url")
+    ):
+        return JobActivityStatus.open, ["provider: active application URL"]
     apply_hits = [
         *_hits(normalized, SPANISH_APPLY_TERMS),
         *_hits(normalized, ENGLISH_APPLY_TERMS),

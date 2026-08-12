@@ -25,7 +25,7 @@ def get_effective_profile(db: Session, profile_id: str) -> SearchProfile:
     stored = db.get(RadarProfileConfig, profile_id)
     if stored is None:
         return fallback
-    return SearchProfile.model_validate(stored.profile_json)
+    return SearchProfile.model_validate(_upgrade_legacy_sources(stored.profile_json))
 
 
 def list_effective_profiles(db: Session) -> list[SearchProfile]:
@@ -34,7 +34,7 @@ def list_effective_profiles(db: Session) -> list[SearchProfile]:
         for item in db.scalars(select(RadarProfileConfig)).all()
     }
     return [
-        SearchProfile.model_validate(stored[profile_id].profile_json)
+        SearchProfile.model_validate(_upgrade_legacy_sources(stored[profile_id].profile_json))
         if profile_id in stored
         else profile
         for profile_id, profile in PROFILES.items()
@@ -47,7 +47,7 @@ def get_profile_document(db: Session, profile_id: str) -> SearchProfileDocument:
     if stored is None:
         return SearchProfileDocument(profile=fallback, revision=0, persisted=False)
     return SearchProfileDocument(
-        profile=SearchProfile.model_validate(stored.profile_json),
+        profile=SearchProfile.model_validate(_upgrade_legacy_sources(stored.profile_json)),
         revision=stored.revision,
         persisted=True,
     )
@@ -149,3 +149,44 @@ def _normalize_profile(
             "queries": queries,
         }
     )
+
+
+def _upgrade_legacy_sources(profile_json: dict) -> dict:
+    """Apply source capabilities to profiles saved before structured acquisition existed."""
+    raw_sources = profile_json.get("ordered_sources")
+    if not isinstance(raw_sources, list) or any(
+        isinstance(source, dict) and "acquisition_mode" in source
+        for source in raw_sources
+    ):
+        return profile_json
+
+    structured = {
+        "himalayas": ("himalayas_api", "https://himalayas.app"),
+        "we_work_remotely": ("we_work_remotely_rss", "https://weworkremotely.com"),
+        "remote_ok": ("remote_ok_api", "https://remoteok.com"),
+    }
+    sources: list[dict] = []
+    for source in raw_sources:
+        if not isinstance(source, dict):
+            continue
+        upgraded = {**source}
+        capability = structured.get(str(upgraded.get("id")))
+        if capability:
+            upgraded["acquisition_mode"] = capability[0]
+            upgraded["attribution_url"] = capability[1]
+            upgraded["enabled"] = True
+            upgraded["max_results"] = 15 if upgraded.get("id") == "remote_ok" else 10
+        else:
+            upgraded["acquisition_mode"] = "web_search"
+        sources.append(upgraded)
+
+    priority = {"himalayas": 0, "we_work_remotely": 1, "remote_ok": 2}
+    sources.sort(
+        key=lambda source: (
+            priority.get(str(source.get("id")), 3),
+            int(source.get("order") or 999),
+        )
+    )
+    for index, source in enumerate(sources, start=1):
+        source["order"] = index
+    return {**profile_json, "ordered_sources": sources}

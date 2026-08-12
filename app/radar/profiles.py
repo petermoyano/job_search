@@ -3,6 +3,7 @@ from __future__ import annotations
 from pydantic import HttpUrl
 
 from app.radar.models import (
+    AcquisitionMode,
     EligibilityPolicy,
     RoleTier,
     ScoringGroup,
@@ -78,18 +79,31 @@ ROMINA_TIER_1_SOURCE_DOMAINS = [
 ]
 
 ROMINA_ORDERED_SOURCES = [
-    SearchSource(id="linkedin", label="LinkedIn Jobs", domains=["linkedin.com"], order=1),
-    SearchSource(id="computrabajo_ar", label="Computrabajo Argentina", domains=["ar.computrabajo.com"], order=2),
-    SearchSource(id="bumeran", label="Bumeran", domains=["bumeran.com.ar"], order=3),
-    SearchSource(id="getonboard", label="Get On Board", domains=["getonbrd.com"], order=4),
-    SearchSource(id="hiringroom", label="Hiring Room", domains=["hiringroom.com"], order=5),
-    SearchSource(id="torre", label="Torre", domains=["torre.ai"], order=6),
-    SearchSource(id="remote_latam", label="Remote Latam", domains=["remolatam.com"], order=7),
-    SearchSource(id="remote_ok", label="Remote OK", domains=["remoteok.com"], order=8),
-    SearchSource(id="himalayas", label="Himalayas", domains=["himalayas.app"], order=9),
-    SearchSource(id="jobgether", label="Jobgether", domains=["jobgether.com"], order=10),
-    SearchSource(id="zonajobs", label="Zonajobs", domains=["zonajobs.com.ar"], order=11, enabled=False),
-    SearchSource(id="we_work_remotely", label="We Work Remotely", domains=["weworkremotely.com"], order=12, enabled=False),
+    SearchSource(
+        id="himalayas", label="Himalayas", domains=["himalayas.app"], order=1,
+        max_results=10, acquisition_mode=AcquisitionMode.himalayas_api,
+        attribution_url="https://himalayas.app",
+    ),
+    SearchSource(
+        id="we_work_remotely", label="We Work Remotely",
+        domains=["weworkremotely.com"], order=2, max_results=10,
+        acquisition_mode=AcquisitionMode.we_work_remotely_rss,
+        attribution_url="https://weworkremotely.com",
+    ),
+    SearchSource(
+        id="remote_ok", label="Remote OK", domains=["remoteok.com"], order=3,
+        max_results=15, acquisition_mode=AcquisitionMode.remote_ok_api,
+        attribution_url="https://remoteok.com",
+    ),
+    SearchSource(id="linkedin", label="LinkedIn Jobs", domains=["linkedin.com"], order=4),
+    SearchSource(id="computrabajo_ar", label="Computrabajo Argentina", domains=["ar.computrabajo.com"], order=5),
+    SearchSource(id="bumeran", label="Bumeran", domains=["bumeran.com.ar"], order=6),
+    SearchSource(id="getonboard", label="Get On Board", domains=["getonbrd.com"], order=7),
+    SearchSource(id="hiringroom", label="Hiring Room", domains=["hiringroom.com"], order=8),
+    SearchSource(id="torre", label="Torre", domains=["torre.ai"], order=9),
+    SearchSource(id="remote_latam", label="Remote Latam", domains=["remolatam.com"], order=10),
+    SearchSource(id="jobgether", label="Jobgether", domains=["jobgether.com"], order=11),
+    SearchSource(id="zonajobs", label="Zonajobs", domains=["zonajobs.com.ar"], order=12, enabled=False),
     SearchSource(id="jobspresso", label="Jobspresso", domains=["jobspresso.co"], order=13, enabled=False),
     SearchSource(id="indeed_es", label="Indeed España", domains=["es.indeed.com"], order=14, enabled=False),
     SearchSource(id="infojobs", label="InfoJobs", domains=["infojobs.net"], order=15, enabled=False),

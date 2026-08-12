@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from urllib.parse import urlsplit
 
 from app.radar.eligibility import assess_candidate_eligibility
 from app.radar.models import (
@@ -8,6 +9,7 @@ from app.radar.models import (
     NormalizedJobCandidate,
     PageType,
     RadarClassification,
+    RadarJobFacts,
     RadarVerdict,
     ScoringGroup,
     SearchProfile,
@@ -41,6 +43,13 @@ def classify_candidate(
             is_job_posting=False,
             reasons=[reason],
             negative_signals=[reason],
+            facts=RadarJobFacts(
+                source_domain=(urlsplit(candidate.canonical_url).hostname or "")
+                .removeprefix("www."),
+                application_url=str(
+                    candidate.metadata.get("application_url") or candidate.canonical_url
+                ),
+            ),
             needs_review=page_type == PageType.unknown,
         )
 

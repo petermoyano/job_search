@@ -60,6 +60,7 @@ POSTING_SIGNAL_GROUPS = [
         "buscamos incorporar",
         "buscamos un",
         "buscamos una",
+    r"/remote-jobs/[^/]+",
         "se busca",
     ],
     [

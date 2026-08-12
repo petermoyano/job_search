@@ -40,6 +40,7 @@ class _SearchRequest:
 
 class TavilyConnector(DiscoveryConnector):
     name = "tavily"
+    handles_unregistered_sources = True
 
     def __init__(self, api_key: str | None = None) -> None:
         self.api_key = api_key or get_settings().tavily_api_key

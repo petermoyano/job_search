@@ -3,17 +3,21 @@ from pathlib import Path
 
 from app.radar.classify import classify_candidate
 from app.radar.connectors.base import DiscoveryConnector
+from app.radar.connectors.himalayas import _timestamp
 from app.radar.connectors.sample import SampleConnector
 from app.radar.connectors.tavily import TavilyConnector
 from app.radar.discovery import run_discovery
 from app.radar.models import (
+    AcquisitionMode,
     DiscoverySourceKind,
     EligibilityStatus,
     PageType,
     RadarVerdict,
     RawDiscovery,
+    SearchSource,
 )
 from app.radar.normalize import canonicalize_url, normalize_discovery
+from app.radar.profile_store import _upgrade_legacy_sources
 from app.radar.profiles import (
     PETER_REMOTE_AI_FULLSTACK_PRODUCT,
     PETER_US_REMOTE_DIRECT_PRODUCT,
@@ -55,11 +59,79 @@ def test_romina_profile_encodes_requested_source_order() -> None:
     enabled = [source for source in ROMINA_ORDERED_SOURCES if source.enabled]
 
     assert [source.id for source in enabled] == [
-        "linkedin", "computrabajo_ar", "bumeran", "getonboard", "hiringroom",
-        "torre", "remote_latam", "remote_ok", "himalayas", "jobgether",
+        "himalayas", "we_work_remotely", "remote_ok", "linkedin",
+        "computrabajo_ar", "bumeran", "getonboard", "hiringroom", "torre",
+        "remote_latam", "jobgether",
     ]
     assert [source.order for source in ROMINA_ORDERED_SOURCES] == list(range(1, 26))
     assert all(source.min_qualified_to_stop == 3 for source in enabled)
+
+
+def test_legacy_profile_sources_are_upgraded_without_touching_other_fields() -> None:
+    profile_json = ROMINA_REMOTE_SPANISH_HR.model_dump(mode="json")
+    for source in profile_json["ordered_sources"]:
+        source.pop("acquisition_mode", None)
+        source.pop("attribution_url", None)
+    profile_json["candidate_summary"] = "Conservar este texto"
+
+    upgraded = _upgrade_legacy_sources(profile_json)
+
+    assert upgraded["candidate_summary"] == "Conservar este texto"
+    assert [source["id"] for source in upgraded["ordered_sources"][:3]] == [
+        "himalayas", "we_work_remotely", "remote_ok",
+    ]
+    assert upgraded["ordered_sources"][0]["acquisition_mode"] == "himalayas_api"
+
+
+def test_himalayas_timestamp_accepts_epoch_seconds() -> None:
+    assert _timestamp(1_800_000_000).startswith("2027-")
+
+
+def test_ordered_discovery_continues_after_one_provider_fails() -> None:
+    class FailingConnector(DiscoveryConnector):
+        name = "failing"
+        source_ids = frozenset({"himalayas"})
+
+        def discover(self, profile, limit):
+            return []
+
+        def discover_source(self, profile, source, limit):
+            raise RuntimeError("provider_unavailable: timeout")
+
+    class WorkingConnector(DiscoveryConnector):
+        name = "working"
+        source_ids = frozenset({"remote_ok"})
+
+        def discover(self, profile, limit):
+            return [_valid_remote_raw(90)]
+
+    profile = ROMINA_REMOTE_SPANISH_HR.model_copy(
+        update={
+            "ordered_sources": [
+                SearchSource(
+                    id="himalayas", label="Himalayas", domains=["himalayas.app"],
+                    order=1, acquisition_mode=AcquisitionMode.himalayas_api,
+                ),
+                SearchSource(
+                    id="remote_ok", label="Remote OK", domains=["remoteok.com"],
+                    order=2, acquisition_mode=AcquisitionMode.remote_ok_api,
+                ),
+            ],
+            "max_qualified_results": 1,
+        }
+    )
+
+    result = run_discovery(
+        profile=profile,
+        connectors=[FailingConnector(), WorkingConnector()],
+        limit=5,
+        hydrate=False,
+    )
+
+    assert len(result.items) == 1
+    assert result.source_summaries[0].status == "failed"
+    assert result.source_summaries[0].error_code == "provider_unavailable"
+    assert result.source_summaries[1].stop_reason == "target_reached"
 
 def test_romina_remote_verified_spanish_hr_role_is_promising() -> None:
     classification = _classify_text(
@@ -337,7 +409,9 @@ def test_tavily_runs_tier_queries_for_one_ordered_source(monkeypatch) -> None:
 
     monkeypatch.setattr("app.radar.connectors.tavily._post_json", fake_post_json)
 
-    source = ROMINA_ORDERED_SOURCES[0]
+    source = next(
+        source for source in ROMINA_ORDERED_SOURCES if source.id == "linkedin"
+    )
     TavilyConnector(api_key="test-key").discover_source(
         ROMINA_REMOTE_SPANISH_HR,
         source,
@@ -356,7 +430,7 @@ def test_ordered_discovery_blacklist_overrides_an_enabled_source() -> None:
             "computrabajo_ar": [_valid_remote_raw(index + 10) for index in range(3)],
         }
     )
-    profile = ROMINA_REMOTE_SPANISH_HR.model_copy(
+    profile = _ordered_test_profile(max_results=3).model_copy(
         update={"excluded_source_domains": ["linkedin.com"]}
     )
 
@@ -380,7 +454,7 @@ def test_ordered_discovery_stops_after_three_new_qualified_results() -> None:
     )
 
     result = run_discovery(
-        profile=ROMINA_REMOTE_SPANISH_HR,
+        profile=_ordered_test_profile(max_results=3),
         connectors=[connector],
         limit=25,
         hydrate=False,
@@ -392,7 +466,7 @@ def test_ordered_discovery_stops_after_three_new_qualified_results() -> None:
     assert len(result.items) == 3
     assert not result.excluded_items
     assert result.source_summaries[0].continued_to_next is False
-    assert result.source_summaries[0].stop_reason == "source_threshold_met"
+    assert result.source_summaries[0].stop_reason == "target_reached"
 
 
 def test_ordered_discovery_continues_when_first_source_has_too_few() -> None:
@@ -404,7 +478,7 @@ def test_ordered_discovery_continues_when_first_source_has_too_few() -> None:
     )
 
     result = run_discovery(
-        profile=ROMINA_REMOTE_SPANISH_HR,
+        profile=_ordered_test_profile(max_results=3),
         connectors=[connector],
         limit=25,
         hydrate=False,
@@ -412,17 +486,29 @@ def test_ordered_discovery_continues_when_first_source_has_too_few() -> None:
 
     assert connector.calls == ["linkedin", "computrabajo_ar"]
     assert result.total_new == 4
-    assert len(result.items) == 4
+    assert len(result.items) == 3
     assert result.source_summaries[0].continued_to_next is True
     assert result.source_summaries[0].stop_reason is None
     assert result.source_summaries[1].continued_to_next is False
-    assert result.source_summaries[1].stop_reason == "source_threshold_met"
+    assert result.source_summaries[1].stop_reason == "target_reached"
 
 
 def test_canonicalize_url_removes_tracking_params() -> None:
     url = "https://Jobs.Lever.co/acme/123/?utm_source=linkedin&foo=bar#apply"
 
     assert canonicalize_url(url) == "https://jobs.lever.co/acme/123?foo=bar"
+
+
+def _ordered_test_profile(max_results: int):
+    source_ids = {"linkedin", "computrabajo_ar"}
+    return ROMINA_REMOTE_SPANISH_HR.model_copy(
+        update={
+            "ordered_sources": [
+                source for source in ROMINA_ORDERED_SOURCES if source.id in source_ids
+            ],
+            "max_qualified_results": max_results,
+        }
+    )
 
 
 class _OrderedFakeConnector(DiscoveryConnector):
@@ -565,7 +651,7 @@ def test_ordered_discovery_limit_does_not_skip_later_sources() -> None:
     )
 
     result = run_discovery(
-        profile=ROMINA_REMOTE_SPANISH_HR,
+        profile=_ordered_test_profile(max_results=3),
         connectors=[connector],
         limit=5,
         hydrate=False,

@@ -202,6 +202,7 @@ class RadarFeedbackAction(StrEnum):
     interested = "interested"
     not_relevant = "not_relevant"
     applied = "applied"
+    should_have_been_shown = "should_have_been_shown"
 
 
 class RadarFeedbackReason(StrEnum):
@@ -214,6 +215,14 @@ class RadarFeedbackReason(StrEnum):
     english_description_or_application = "english_description_or_application"
     duplicate = "duplicate"
     broken_link = "broken_link"
+    actually_remote = "actually_remote"
+    can_hire_argentina = "can_hire_argentina"
+    seniority_matches = "seniority_matches"
+    role_matches = "role_matches"
+    still_open = "still_open"
+    english_not_required = "english_not_required"
+    salary_matches = "salary_matches"
+    provider_misclassified = "provider_misclassified"
     other = "other"
 
 
@@ -225,10 +234,12 @@ class RadarFeedbackUpsert(BaseModel):
 
     @model_validator(mode="after")
     def validate_reason_codes(self):
-        if self.action == RadarFeedbackAction.not_relevant and not self.reason_codes:
-            raise ValueError(
-                "At least one reason is required for not_relevant feedback"
-            )
+        actions_requiring_reasons = {
+            RadarFeedbackAction.not_relevant,
+            RadarFeedbackAction.should_have_been_shown,
+        }
+        if self.action in actions_requiring_reasons and not self.reason_codes:
+            raise ValueError("At least one reason is required for this feedback action")
         return self
 
 
@@ -284,7 +295,7 @@ class RadarOpportunityRead(BaseModel):
 
 class RadarRunRequest(BaseModel):
     profile_id: str
-    source: Literal["sample", "tavily"] = "tavily"
+    source: Literal["sample", "configured", "tavily"] = "configured"
     limit: int = Field(default=25, ge=1, le=50)
 
 
