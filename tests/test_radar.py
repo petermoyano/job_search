@@ -20,7 +20,6 @@ from app.radar.profiles import (
     ROMINA_MENDOZA_HR_ONSITE_HYBRID,
     ROMINA_ORDERED_SOURCES,
     ROMINA_REMOTE_SPANISH_HR,
-    ROMINA_TIER_1_SOURCE_DOMAINS,
     get_profile,
 )
 
