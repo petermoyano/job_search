@@ -255,10 +255,19 @@ class RadarRun(Base, TimestampMixin):
     source_summaries: Mapped[list[dict]] = mapped_column(
         JSON, default=list, nullable=False
     )
+    profile_snapshot: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
 
     evaluations: Mapped[list["RadarEvaluation"]] = relationship(
         back_populates="run", cascade="all, delete-orphan"
     )
+
+
+class RadarProfileConfig(Base, TimestampMixin):
+    __tablename__ = "radar_profile_configs"
+
+    profile_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    profile_json: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
 
 
 class RadarOpportunity(Base, TimestampMixin):

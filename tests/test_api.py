@@ -3,7 +3,7 @@ import os
 from types import SimpleNamespace
 from uuid import uuid4
 
-os.environ["DATABASE_URL"] = "sqlite:///./test_job_radar_v2.db"
+os.environ["DATABASE_URL"] = "sqlite:///./test_job_radar_v3.db"
 os.environ["APP_ENV"] = "test"
 
 from fastapi.testclient import TestClient  # noqa: E402
@@ -56,6 +56,29 @@ def test_list_radar_profiles() -> None:
     assert "peter-latam-remote-ai-fullstack-product" in profile_ids
     assert "romina-remote-spanish-hr" in profile_ids
     assert "romina-mendoza-hr-onsite-hybrid" in profile_ids
+
+
+def test_editable_radar_profile_uses_optimistic_revision() -> None:
+    with TestClient(app) as client:
+        current = client.get("/radar/profiles/romina-remote-spanish-hr/config")
+        assert current.status_code == 200
+        document = current.json()
+        profile = document["profile"]
+        profile["candidate_summary"] = "Perfil editable de Romina para búsquedas futuras."
+
+        saved = client.put(
+            "/radar/profiles/romina-remote-spanish-hr/config",
+            json={"expected_revision": document["revision"], "profile": profile},
+        )
+        assert saved.status_code == 200
+        assert saved.json()["revision"] == document["revision"] + 1
+        assert saved.json()["profile"]["version"].startswith("config-r")
+
+        stale = client.put(
+            "/radar/profiles/romina-remote-spanish-hr/config",
+            json={"expected_revision": document["revision"], "profile": profile},
+        )
+        assert stale.status_code == 409
 
 
 def test_http_requests_include_correlation_id(caplog) -> None:

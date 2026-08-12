@@ -75,6 +75,7 @@ class SearchSource(BaseModel):
     primary: bool = True
     max_results: int = Field(default=5, ge=1, le=20)
     min_qualified_to_stop: int = Field(default=3, ge=1, le=10)
+    enabled: bool = True
 
 
 class EligibilityPolicy(BaseModel):
@@ -87,6 +88,7 @@ class EligibilityPolicy(BaseModel):
     rejected_seniority_terms: list[str] = Field(default_factory=list)
     excluded_role_terms: list[str] = Field(default_factory=list)
     require_active_posting: bool = False
+    minimum_salary_usd_monthly: int | None = Field(default=None, ge=0)
 
 
 class SearchProfile(BaseModel):
@@ -113,6 +115,17 @@ class SearchProfile(BaseModel):
     queries: list[SearchQuery] = Field(default_factory=list)
     max_results_per_query: int = 10
     max_qualified_results: int = Field(default=5, ge=1, le=25)
+
+
+class SearchProfileDocument(BaseModel):
+    profile: SearchProfile
+    revision: int = Field(ge=0)
+    persisted: bool = False
+
+
+class SearchProfileUpdateRequest(BaseModel):
+    profile: SearchProfile
+    expected_revision: int = Field(ge=0)
 
 
 class RawDiscovery(BaseModel):
@@ -152,6 +165,9 @@ class RadarJobFacts(BaseModel):
     published_at: datetime | None = None
     role_tier: int | None = Field(default=None, ge=1, le=3)
     application_url: str | None = None
+    salary_text: str | None = None
+    salary_min_usd_monthly: int | None = Field(default=None, ge=0)
+    salary_max_usd_monthly: int | None = Field(default=None, ge=0)
 
 
 class EligibilityCheck(BaseModel):

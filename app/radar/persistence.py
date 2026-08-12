@@ -73,6 +73,7 @@ def persist_discovery_result(
         source_summaries=[
             summary.model_dump(mode="json") for summary in result.source_summaries
         ],
+        profile_snapshot=profile.model_dump(mode="json"),
     )
     db.add(run)
     db.flush()

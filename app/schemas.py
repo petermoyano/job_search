@@ -260,6 +260,7 @@ class RadarRunRead(BaseModel):
     total_new: int
     total_excluded: int
     source_summaries: list[dict[str, Any]]
+    profile_snapshot: dict[str, Any]
     created_at: datetime
     updated_at: datetime
 

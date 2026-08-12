@@ -53,17 +53,14 @@ def test_profile_selection_includes_peter_and_romina_profiles() -> None:
 
 
 def test_romina_profile_encodes_requested_source_order() -> None:
-    primary = [source for source in ROMINA_ORDERED_SOURCES if source.primary]
+    enabled = [source for source in ROMINA_ORDERED_SOURCES if source.enabled]
 
-    assert [source.id for source in primary] == [
-        "infojobs",
-        "linkedin",
-        "computrabajo_ar",
-        "bumeran",
-        "indeed_es",
+    assert [source.id for source in enabled] == [
+        "linkedin", "computrabajo_ar", "bumeran", "getonboard", "hiringroom",
+        "torre", "remote_latam", "remote_ok", "himalayas", "jobgether",
     ]
-    assert [source.domains[0] for source in primary] == ROMINA_TIER_1_SOURCE_DOMAINS
-
+    assert [source.order for source in ROMINA_ORDERED_SOURCES] == list(range(1, 26))
+    assert all(source.min_qualified_to_stop == 3 for source in enabled)
 
 def test_romina_remote_verified_spanish_hr_role_is_promising() -> None:
     classification = _classify_text(
@@ -123,7 +120,7 @@ def test_romina_remote_allows_non_exclusive_intermediate_english() -> None:
     assert classification.eligible is True
 
 
-def test_romina_remote_english_description_is_rejected() -> None:
+def test_romina_remote_english_description_is_allowed_without_advanced_requirement() -> None:
     classification = _classify_text(
         ROMINA_REMOTE_SPANISH_HR,
         title="People Operations Senior",
@@ -135,10 +132,10 @@ def test_romina_remote_english_description_is_rejected() -> None:
         """,
     )
 
-    assert classification.verdict == RadarVerdict.reject
-    assert any(
-        check.criterion == "description_language"
-        and check.status == EligibilityStatus.failed
+    assert classification.verdict == RadarVerdict.promising
+    assert classification.eligible is True
+    assert not any(
+        check.criterion in {"description_language", "application_language"}
         for check in classification.eligibility_checks
     )
 
@@ -349,8 +346,30 @@ def test_tavily_runs_tier_queries_for_one_ordered_source(monkeypatch) -> None:
     )
 
     assert len(payloads) == 3
-    assert all(payload["include_domains"] == ["infojobs.net"] for payload in payloads)
+    assert all(payload["include_domains"] == ["linkedin.com"] for payload in payloads)
     assert sum(payload["max_results"] for payload in payloads) == 5
+
+
+def test_ordered_discovery_blacklist_overrides_an_enabled_source() -> None:
+    connector = _OrderedFakeConnector(
+        {
+            "linkedin": [_valid_remote_raw(1)],
+            "computrabajo_ar": [_valid_remote_raw(index + 10) for index in range(3)],
+        }
+    )
+    profile = ROMINA_REMOTE_SPANISH_HR.model_copy(
+        update={"excluded_source_domains": ["linkedin.com"]}
+    )
+
+    result = run_discovery(
+        profile=profile,
+        connectors=[connector],
+        limit=25,
+        hydrate=False,
+    )
+
+    assert connector.calls == ["computrabajo_ar"]
+    assert result.total_new == 3
 
 
 def test_ordered_discovery_stops_after_three_new_qualified_results() -> None:
@@ -368,7 +387,7 @@ def test_ordered_discovery_stops_after_three_new_qualified_results() -> None:
         hydrate=False,
     )
 
-    assert connector.calls == ["infojobs"]
+    assert connector.calls == ["linkedin"]
     assert result.total_qualified == 3
     assert result.total_new == 3
     assert len(result.items) == 3
@@ -380,8 +399,8 @@ def test_ordered_discovery_stops_after_three_new_qualified_results() -> None:
 def test_ordered_discovery_continues_when_first_source_has_too_few() -> None:
     connector = _OrderedFakeConnector(
         {
-            "infojobs": [_valid_remote_raw(1)],
-            "linkedin": [_valid_remote_raw(index + 10) for index in range(3)],
+            "linkedin": [_valid_remote_raw(1)],
+            "computrabajo_ar": [_valid_remote_raw(index + 10) for index in range(3)],
         }
     )
 
@@ -392,7 +411,7 @@ def test_ordered_discovery_continues_when_first_source_has_too_few() -> None:
         hydrate=False,
     )
 
-    assert connector.calls == ["infojobs", "linkedin"]
+    assert connector.calls == ["linkedin", "computrabajo_ar"]
     assert result.total_new == 4
     assert len(result.items) == 4
     assert result.source_summaries[0].continued_to_next is True
@@ -541,8 +560,8 @@ def test_ordered_discovery_limit_does_not_skip_later_sources() -> None:
     ]
     connector = _OrderedFakeConnector(
         {
-            "infojobs": invalid_first_source,
-            "linkedin": [_valid_remote_raw(index + 20) for index in range(3)],
+            "linkedin": invalid_first_source,
+            "computrabajo_ar": [_valid_remote_raw(index + 20) for index in range(3)],
         }
     )
 
@@ -553,12 +572,12 @@ def test_ordered_discovery_limit_does_not_skip_later_sources() -> None:
         hydrate=False,
     )
 
-    assert connector.calls == ["infojobs", "linkedin"]
+    assert connector.calls == ["linkedin", "computrabajo_ar"]
     assert result.total_raw == 8
     assert len(result.items) == 3
 
 
-def test_romina_rejects_an_english_application_page_for_a_spanish_job() -> None:
+def test_romina_allows_an_english_application_page_without_advanced_requirement() -> None:
     candidate = normalize_discovery(
         RawDiscovery(
             source=DiscoverySourceKind.tavily,
@@ -584,12 +603,61 @@ def test_romina_rejects_an_english_application_page_for_a_spanish_job() -> None:
 
     classification = classify_candidate(candidate, ROMINA_REMOTE_SPANISH_HR)
 
-    assert classification.eligible is False
-    assert any(
+    assert classification.eligible is True
+    assert not any(
         check.criterion == "application_language"
-        and check.status == EligibilityStatus.failed
         for check in classification.eligibility_checks
     )
+
+
+def test_romina_accepts_mendoza_hybrid_and_rejects_hybrid_elsewhere() -> None:
+    mendoza = _classify_text(
+        ROMINA_REMOTE_SPANISH_HR,
+        title="HR Business Partner Senior",
+        raw_text="""
+        Posición híbrida en Mendoza, Argentina. Buscamos HRBP con cinco años de
+        experiencia en recursos humanos y selección. Postularme ahora.
+        """,
+    )
+    cordoba = _classify_text(
+        ROMINA_REMOTE_SPANISH_HR,
+        title="HR Business Partner Senior",
+        raw_text="""
+        Posición híbrida en Córdoba, Argentina. Buscamos HRBP con cinco años de
+        experiencia en recursos humanos y selección. Postularme ahora.
+        """,
+    )
+
+    assert mendoza.eligible is True
+    assert cordoba.eligible is False
+    assert any(
+        check.criterion == "work_modality" and check.status == EligibilityStatus.failed
+        for check in cordoba.eligibility_checks
+    )
+
+
+def test_romina_rejects_only_an_explicit_salary_below_floor() -> None:
+    below = _classify_text(
+        ROMINA_REMOTE_SPANISH_HR,
+        title="IT Recruiter Senior",
+        raw_text="""
+        Trabajo 100% remoto desde Argentina y LATAM. Se requieren cinco años de
+        experiencia. Salario USD 800 mensual. Postularme ahora.
+        """,
+    )
+    undisclosed = _classify_text(
+        ROMINA_REMOTE_SPANISH_HR,
+        title="IT Recruiter Senior",
+        raw_text="""
+        Trabajo 100% remoto desde Argentina y LATAM. Se requieren cinco años de
+        experiencia en selección de talento tecnológico. Postularme ahora.
+        """,
+    )
+
+    assert below.eligible is False
+    assert below.facts.salary_min_usd_monthly == 800
+    assert undisclosed.eligible is True
+    assert undisclosed.facts.salary_min_usd_monthly is None
 
 
 def test_romina_role_matching_accepts_common_title_variants() -> None:
@@ -613,7 +681,7 @@ def test_romina_role_matching_accepts_common_title_variants() -> None:
     )
 
     assert analyst.eligible is True
-    assert analyst.role_tier == 3
+    assert analyst.role_tier == 1
     assert recruiter.eligible is True
     assert recruiter.role_tier == 2
 

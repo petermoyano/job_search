@@ -10,8 +10,19 @@ from app.graph.workflow import run_job_analysis_workflow
 from app.radar.connectors.sample import SampleConnector
 from app.radar.connectors.tavily import TavilyConnector
 from app.radar.discovery import run_discovery
-from app.radar.models import DiscoveryRunResult, SearchProfile
-from app.radar.profiles import PROFILES, get_profile as get_radar_profile
+from app.radar.models import (
+    DiscoveryRunResult,
+    SearchProfile,
+    SearchProfileDocument,
+    SearchProfileUpdateRequest,
+)
+from app.radar.profile_store import (
+    ProfileRevisionConflictError,
+    get_effective_profile,
+    get_profile_document,
+    list_effective_profiles,
+    update_profile_document,
+)
 from app.models import (
     CandidateCV,
     CandidateProfile,
@@ -67,8 +78,40 @@ def health() -> dict[str, str]:
 
 
 @router.get("/radar/profiles", response_model=list[SearchProfile])
-def list_radar_profiles() -> list[SearchProfile]:
-    return list(PROFILES.values())
+def list_radar_profiles(db: Session = Depends(get_db)) -> list[SearchProfile]:
+    return list_effective_profiles(db)
+
+
+@router.get(
+    "/radar/profiles/{profile_id}/config",
+    response_model=SearchProfileDocument,
+)
+def read_radar_profile_config(
+    profile_id: str, db: Session = Depends(get_db)
+) -> SearchProfileDocument:
+    try:
+        return get_profile_document(db, profile_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.put(
+    "/radar/profiles/{profile_id}/config",
+    response_model=SearchProfileDocument,
+)
+def save_radar_profile_config(
+    profile_id: str,
+    payload: SearchProfileUpdateRequest,
+    db: Session = Depends(get_db),
+) -> SearchProfileDocument:
+    try:
+        document = update_profile_document(db, profile_id, payload)
+        db.commit()
+        return document
+    except ProfileRevisionConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.post("/radar/runs", response_model=DiscoveryRunResult)
@@ -82,7 +125,7 @@ def run_radar(
         payload.limit,
     )
     try:
-        profile = get_radar_profile(payload.profile_id)
+        profile = get_effective_profile(db, payload.profile_id)
     except ValueError as exc:
         LOGGER.warning("Radar API request rejected: profile_id=%s", payload.profile_id)
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -169,7 +212,7 @@ def list_radar_opportunities(
     db: Session = Depends(get_db),
 ) -> list[dict]:
     try:
-        get_radar_profile(profile_id)
+        get_effective_profile(db, profile_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return list_profile_opportunities(
@@ -190,7 +233,7 @@ def save_radar_feedback(
     db: Session = Depends(get_db),
 ):
     try:
-        get_radar_profile(payload.profile_id)
+        get_effective_profile(db, payload.profile_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     opportunity = db.get(RadarOpportunity, opportunity_id)

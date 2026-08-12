@@ -1,0 +1,151 @@
+from __future__ import annotations
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.models import RadarProfileConfig
+from app.radar.models import (
+    SearchProfile,
+    SearchProfileDocument,
+    SearchProfileUpdateRequest,
+)
+from app.radar.profiles import (
+    PROFILES,
+    build_role_tier_queries,
+    get_profile as get_static_profile,
+)
+
+
+class ProfileRevisionConflictError(ValueError):
+    pass
+
+
+def get_effective_profile(db: Session, profile_id: str) -> SearchProfile:
+    fallback = get_static_profile(profile_id)
+    stored = db.get(RadarProfileConfig, profile_id)
+    if stored is None:
+        return fallback
+    return SearchProfile.model_validate(stored.profile_json)
+
+
+def list_effective_profiles(db: Session) -> list[SearchProfile]:
+    stored = {
+        item.profile_id: item
+        for item in db.scalars(select(RadarProfileConfig)).all()
+    }
+    return [
+        SearchProfile.model_validate(stored[profile_id].profile_json)
+        if profile_id in stored
+        else profile
+        for profile_id, profile in PROFILES.items()
+    ]
+
+
+def get_profile_document(db: Session, profile_id: str) -> SearchProfileDocument:
+    fallback = get_static_profile(profile_id)
+    stored = db.get(RadarProfileConfig, profile_id)
+    if stored is None:
+        return SearchProfileDocument(profile=fallback, revision=0, persisted=False)
+    return SearchProfileDocument(
+        profile=SearchProfile.model_validate(stored.profile_json),
+        revision=stored.revision,
+        persisted=True,
+    )
+
+
+def update_profile_document(
+    db: Session,
+    profile_id: str,
+    payload: SearchProfileUpdateRequest,
+) -> SearchProfileDocument:
+    fallback = get_static_profile(profile_id)
+    stored = db.scalar(
+        select(RadarProfileConfig)
+        .where(RadarProfileConfig.profile_id == profile_id)
+        .with_for_update()
+    )
+    current_revision = stored.revision if stored is not None else 0
+    if payload.expected_revision != current_revision:
+        raise ProfileRevisionConflictError(
+            "El perfil cambió desde que se abrió. Recargalo antes de volver a guardar."
+        )
+    if payload.profile.id != profile_id:
+        raise ValueError("El id del perfil no coincide con la URL.")
+
+    next_revision = current_revision + 1
+    normalized = _normalize_profile(
+        payload.profile,
+        fallback=fallback,
+        revision=next_revision,
+    )
+    if stored is None:
+        stored = RadarProfileConfig(
+            profile_id=profile_id,
+            revision=next_revision,
+            profile_json=normalized.model_dump(mode="json"),
+        )
+        db.add(stored)
+    else:
+        stored.revision = next_revision
+        stored.profile_json = normalized.model_dump(mode="json")
+    db.flush()
+    return SearchProfileDocument(
+        profile=normalized,
+        revision=next_revision,
+        persisted=True,
+    )
+
+
+def _normalize_profile(
+    profile: SearchProfile,
+    *,
+    fallback: SearchProfile,
+    revision: int,
+) -> SearchProfile:
+    ordered_sources = [
+        source.model_copy(update={"order": index})
+        for index, source in enumerate(
+            sorted(profile.ordered_sources, key=lambda item: item.order), start=1
+        )
+    ]
+    if not any(source.enabled for source in ordered_sources):
+        raise ValueError("Debe quedar al menos una fuente habilitada.")
+    target_roles = [
+        title
+        for tier in sorted(profile.role_tiers, key=lambda item: item.tier)
+        for title in tier.titles
+        if title.strip()
+    ]
+    if not target_roles:
+        raise ValueError("Debe quedar al menos un puesto objetivo.")
+    excluded_domains = list(
+        dict.fromkeys(
+            domain.strip().casefold().removeprefix("www.")
+            for domain in profile.excluded_source_domains
+            if domain.strip()
+        )
+    )
+    preferred_domains = list(
+        dict.fromkeys(
+            domain.strip().casefold().removeprefix("www.")
+            for source in ordered_sources
+            if source.enabled
+            for domain in source.domains
+            if domain.strip()
+            and domain.strip().casefold().removeprefix("www.") not in excluded_domains
+        )
+    )
+    queries = build_role_tier_queries(profile.role_tiers)
+    return profile.model_copy(
+        update={
+            "id": fallback.id,
+            "version": f"config-r{revision}",
+            "owner_id": fallback.owner_id,
+            "owner_name": fallback.owner_name,
+            "target_roles": target_roles,
+            "ordered_sources": ordered_sources,
+            "preferred_source_domains": preferred_domains,
+            "excluded_source_domains": excluded_domains,
+            "queries": queries,
+        }
+    )

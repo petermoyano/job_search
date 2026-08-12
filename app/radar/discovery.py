@@ -72,7 +72,22 @@ def _run_ordered_discovery(
     summaries: list[SourceRunSummary] = []
     seen_keys: set[str] = set()
     target = min(profile.max_qualified_results, limit)
-    ordered_sources = sorted(profile.ordered_sources, key=lambda item: item.order)
+    excluded_domains = {
+        domain.casefold().removeprefix("www.")
+        for domain in profile.excluded_source_domains
+    }
+    ordered_sources = sorted(
+        (
+            source
+            for source in profile.ordered_sources
+            if source.enabled
+            and not any(
+                domain.casefold().removeprefix("www.") in excluded_domains
+                for domain in source.domains
+            )
+        ),
+        key=lambda item: item.order,
+    )
 
     for source_index, source in enumerate(ordered_sources):
         if len(displayed) >= target:

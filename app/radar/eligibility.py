@@ -34,7 +34,9 @@ REMOTE_STRONG_TERMS = [
 REMOTE_TERMS = [*REMOTE_STRONG_TERMS, "remoto", "remota", "remote", "home office"]
 HYBRID_TERMS = [
     "híbrido",
+    "híbrida",
     "hibrido",
+    "hibrida",
     "hybrid",
     "presencial y remoto",
     "remoto y presencial",
@@ -242,9 +244,15 @@ def assess_candidate_eligibility(
     normalized_text = normalize_for_matching(text)
     role_tier, role_hits = _detect_role_tier(normalized_title, profile)
     work_modality, modality_evidence = _detect_modality(candidate)
-    hiring_scope, scope_status, scope_evidence = _detect_hiring_scope(
-        candidate, profile
-    )
+    hybrid_location_evidence = _allowed_hybrid_location_evidence(candidate, profile)
+    if work_modality == WorkModality.hybrid and hybrid_location_evidence:
+        hiring_scope = "mendoza_hybrid"
+        scope_status = EligibilityStatus.passed
+        scope_evidence = hybrid_location_evidence
+    else:
+        hiring_scope, scope_status, scope_evidence = _detect_hiring_scope(
+            candidate, profile
+        )
     description_language = detect_language(candidate.raw_text or text)
     application_text = str(candidate.metadata.get("application_text") or "")
     application_language = _detect_application_language(
@@ -256,6 +264,7 @@ def assess_candidate_eligibility(
     activity, activity_evidence = _detect_activity(candidate)
     published_at = _parse_datetime(candidate.metadata.get("published_date"))
     application_url = _optional_string(candidate.metadata.get("application_url"))
+    salary_text, salary_min, salary_max = _detect_usd_monthly_salary(candidate)
 
     facts = RadarJobFacts(
         source_domain=(urlsplit(candidate.canonical_url).hostname or "").removeprefix(
@@ -270,6 +279,9 @@ def assess_candidate_eligibility(
         published_at=published_at,
         role_tier=role_tier,
         application_url=application_url,
+        salary_text=salary_text,
+        salary_min_usd_monthly=salary_min,
+        salary_max_usd_monthly=salary_max,
     )
 
     checks: list[EligibilityCheck] = []
@@ -306,22 +318,33 @@ def assess_candidate_eligibility(
             _check(
                 "role_exclusions",
                 EligibilityStatus.passed,
-                "No excluded sales, call-center, or general-administration title was detected.",
+                "No excluded sales, call-center, accounting, or tax title was detected.",
             )
         )
 
-    if policy.require_fully_remote:
+    if policy.require_fully_remote or policy.allowed_hybrid_locations:
         if work_modality == WorkModality.remote:
             modality_status = EligibilityStatus.passed
             modality_reason = "The vacancy is explicitly fully remote."
-        elif work_modality in {WorkModality.hybrid, WorkModality.onsite}:
+        elif work_modality == WorkModality.hybrid and hybrid_location_evidence:
+            modality_status = EligibilityStatus.passed
+            modality_reason = "The vacancy is hybrid and its onsite location is in Mendoza."
+        elif work_modality == WorkModality.hybrid:
             modality_status = EligibilityStatus.failed
-            modality_reason = f"The vacancy is {work_modality.value}, not fully remote."
+            modality_reason = "The vacancy is hybrid outside the allowed Mendoza locations."
+        elif work_modality == WorkModality.onsite:
+            modality_status = EligibilityStatus.failed
+            modality_reason = "Onsite-only vacancies are excluded."
         else:
             modality_status = EligibilityStatus.unknown
-            modality_reason = "The work modality could not be verified as fully remote."
+            modality_reason = "The remote or Mendoza-hybrid modality could not be verified."
         checks.append(
-            _check("work_modality", modality_status, modality_reason, modality_evidence)
+            _check(
+                "work_modality",
+                modality_status,
+                modality_reason,
+                [*modality_evidence, *hybrid_location_evidence],
+            )
         )
 
     checks.append(
@@ -396,7 +419,7 @@ def assess_candidate_eligibility(
                 "The role is semi-senior, senior, specialist, or equivalent."
                 if seniority_status == EligibilityStatus.passed
                 else (
-                    "The role is junior, entry-level, trainee, assistant, or an internship."
+                    "The role is junior, entry-level, trainee, or an internship."
                     if seniority_status == EligibilityStatus.failed
                     else "The required seniority could not be verified."
                 )
@@ -404,6 +427,30 @@ def assess_candidate_eligibility(
             seniority_evidence,
         )
     )
+
+    if policy.minimum_salary_usd_monthly is not None:
+        if salary_min is not None and salary_min < policy.minimum_salary_usd_monthly:
+            salary_status = EligibilityStatus.failed
+            salary_reason = (
+                f"The disclosed minimum salary is USD {salary_min}/month, below the "
+                f"USD {policy.minimum_salary_usd_monthly}/month floor."
+            )
+        elif salary_min is not None:
+            salary_status = EligibilityStatus.passed
+            salary_reason = (
+                f"The disclosed minimum salary is USD {salary_min}/month and meets the floor."
+            )
+        else:
+            salary_status = EligibilityStatus.passed
+            salary_reason = "No explicit below-floor USD salary was detected."
+        checks.append(
+            _check(
+                "minimum_salary",
+                salary_status,
+                salary_reason,
+                [salary_text] if salary_text else [],
+            )
+        )
 
     if policy.require_active_posting:
         if activity == JobActivityStatus.open:
@@ -554,6 +601,22 @@ def _detect_modality(
     return WorkModality.unknown, []
 
 
+def _allowed_hybrid_location_evidence(
+    candidate: NormalizedJobCandidate, profile: SearchProfile
+) -> list[str]:
+    policy = profile.eligibility_policy
+    if policy is None or not policy.allowed_hybrid_locations:
+        return []
+    normalized = normalize_for_matching(
+        "\n".join(
+            part
+            for part in [candidate.title, candidate.location_text, candidate.raw_text]
+            if part
+        )
+    )
+    return _hits(normalized, policy.allowed_hybrid_locations)
+
+
 def _detect_hiring_scope(
     candidate: NormalizedJobCandidate, profile: SearchProfile
 ) -> tuple[str | None, EligibilityStatus, list[str]]:
@@ -605,6 +668,62 @@ def _detect_hiring_scope(
     if eligible_hits:
         return "argentina_latam_or_global", EligibilityStatus.passed, eligible_hits
     return None, EligibilityStatus.unknown, []
+
+
+def _parse_salary_number(value: str) -> int | None:
+    compact = value.strip().replace(" ", "")
+    if not compact:
+        return None
+    if "." in compact and "," in compact:
+        decimal_separator = "." if compact.rfind(".") > compact.rfind(",") else ","
+        thousands_separator = "," if decimal_separator == "." else "."
+        compact = compact.replace(thousands_separator, "").replace(decimal_separator, ".")
+    elif re.search(r"[.,]\d{3}$", compact):
+        compact = compact.replace(".", "").replace(",", "")
+    else:
+        compact = compact.replace(",", ".")
+    try:
+        return round(float(compact))
+    except ValueError:
+        return None
+
+
+def _detect_usd_monthly_salary(
+    candidate: NormalizedJobCandidate,
+) -> tuple[str | None, int | None, int | None]:
+    text = "\n".join(
+        part
+        for part in [
+            candidate.title,
+            candidate.raw_text,
+            str(candidate.metadata.get("salary") or ""),
+            str(candidate.metadata.get("compensation") or ""),
+        ]
+        if part
+    )
+    matches = list(
+        re.finditer(r"(?i)(?:USD|US\$|U\$S)\s*([0-9][0-9.,]*)", text)
+    )
+    monthly_values: list[int] = []
+    evidence: list[str] = []
+    for match in matches:
+        amount = _parse_salary_number(match.group(1))
+        if amount is None:
+            continue
+        context = text[max(0, match.start() - 50) : min(len(text), match.end() + 60)]
+        normalized_context = normalize_for_matching(context)
+        if _hits(normalized_context, ["hora", "hour", "diario", "daily", "por día", "por dia"]):
+            continue
+        if _hits(normalized_context, ["anual", "annual", "per year", "por año", "por ano"]):
+            amount = round(amount / 12)
+        elif not _hits(normalized_context, ["mensual", "monthly", "per month", "por mes"]):
+            if amount > 10000:
+                continue
+        monthly_values.append(amount)
+        evidence.append(" ".join(context.split()))
+    if not monthly_values:
+        return None, None, None
+    return " | ".join(dict.fromkeys(evidence))[:500], min(monthly_values), max(monthly_values)
 
 
 def _detect_application_language(
