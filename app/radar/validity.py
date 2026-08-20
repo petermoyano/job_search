@@ -112,6 +112,11 @@ def classify_page_type(candidate: NormalizedJobCandidate) -> PageType:
         return PageType.informational
     if path in {"", "/"}:
         return PageType.organization_page
+    if (
+        candidate.metadata.get("provider_status") in {"active", "closed"}
+        and candidate.metadata.get("application_url")
+    ):
+        return PageType.job_posting
     if _matches_any(path, JOB_POSTING_PATH_PATTERNS):
         return PageType.job_posting
 

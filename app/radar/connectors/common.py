@@ -42,11 +42,11 @@ def html_to_text(value: str) -> str:
     return "\n".join(parser.parts)
 
 
-def get_json(url: str) -> Any:
-    return json.loads(get_bytes(url).decode("utf-8"))
+def get_json(url: str, *, timeout: int = 30) -> Any:
+    return json.loads(get_bytes(url, timeout=timeout).decode("utf-8"))
 
 
-def get_bytes(url: str) -> bytes:
+def get_bytes(url: str, *, timeout: int = 30) -> bytes:
     request = Request(
         url,
         headers={
@@ -55,15 +55,16 @@ def get_bytes(url: str) -> bytes:
         },
     )
     try:
-        with urlopen(request, timeout=30) as response:
+        with urlopen(request, timeout=timeout) as response:
             return response.read()
     except HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
         if exc.code == 429:
             raise RuntimeError("provider_rate_limited") from exc
         raise RuntimeError(f"provider_http_{exc.code}: {detail[:300]}") from exc
-    except URLError as exc:
-        raise RuntimeError(f"provider_unavailable: {exc.reason}") from exc
+    except (URLError, TimeoutError, OSError) as exc:
+        reason = getattr(exc, "reason", str(exc))
+        raise RuntimeError(f"provider_unavailable: {reason}") from exc
 
 
 def title_may_match_profile(title: str, target_roles: list[str]) -> bool:
@@ -87,6 +88,8 @@ def title_may_match_profile(title: str, target_roles: list[str]) -> bool:
         "reclutador",
         "reclutadora",
         "seleccion",
+        "adquisicion de talento",
+        "gestion de talento",
         "capital humano",
         "employee experience",
         "employer branding",

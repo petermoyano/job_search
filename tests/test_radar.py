@@ -59,8 +59,8 @@ def test_romina_profile_encodes_requested_source_order() -> None:
     enabled = [source for source in ROMINA_ORDERED_SOURCES if source.enabled]
 
     assert [source.id for source in enabled] == [
-        "himalayas", "we_work_remotely", "remote_ok", "linkedin",
-        "computrabajo_ar", "bumeran", "getonboard", "hiringroom", "torre",
+        "himalayas", "we_work_remotely", "remote_ok", "jobspresso", "randstad_ar",
+        "linkedin", "computrabajo_ar", "bumeran", "getonboard", "hiringroom", "torre",
         "remote_latam", "jobgether",
     ]
     assert [source.order for source in ROMINA_ORDERED_SOURCES] == list(range(1, 26))
@@ -77,10 +77,11 @@ def test_legacy_profile_sources_are_upgraded_without_touching_other_fields() -> 
     upgraded = _upgrade_legacy_sources(profile_json)
 
     assert upgraded["candidate_summary"] == "Conservar este texto"
-    assert [source["id"] for source in upgraded["ordered_sources"][:3]] == [
-        "himalayas", "we_work_remotely", "remote_ok",
+    assert [source["id"] for source in upgraded["ordered_sources"][:5]] == [
+        "himalayas", "we_work_remotely", "remote_ok", "jobspresso", "randstad_ar",
     ]
     assert upgraded["ordered_sources"][0]["acquisition_mode"] == "himalayas_api"
+    assert upgraded["ordered_sources"][3]["acquisition_mode"] == "jobspresso_wp_rest"
 
 
 def test_himalayas_timestamp_accepts_epoch_seconds() -> None:

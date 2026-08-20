@@ -8,7 +8,9 @@ from sqlalchemy.orm import Session, selectinload
 from app.db.session import get_db
 from app.graph.workflow import run_job_analysis_workflow
 from app.radar.connectors.himalayas import HimalayasConnector
+from app.radar.connectors.jobspresso import JobspressoConnector
 from app.radar.connectors.remote_ok import RemoteOkConnector
+from app.radar.connectors.randstad_ar import RandstadArgentinaConnector
 from app.radar.connectors.sample import SampleConnector
 from app.radar.connectors.tavily import TavilyConnector
 from app.radar.connectors.we_work_remotely import WeWorkRemotelyConnector
@@ -463,7 +465,8 @@ def _radar_connectors_for(source: str):
     if source == "configured":
         return [
             HimalayasConnector(), WeWorkRemotelyConnector(),
-            RemoteOkConnector(), TavilyConnector(),
+            RemoteOkConnector(), JobspressoConnector(),
+            RandstadArgentinaConnector(), TavilyConnector(),
         ]
     raise HTTPException(status_code=400, detail=f"Unsupported radar source: {source}")
 

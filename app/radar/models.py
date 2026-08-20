@@ -15,6 +15,8 @@ class DiscoverySourceKind(StrEnum):
     himalayas = "himalayas"
     remote_ok = "remote_ok"
     we_work_remotely = "we_work_remotely"
+    jobspresso = "jobspresso"
+    randstad_ar = "randstad_ar"
 
 
 class AcquisitionMode(StrEnum):
@@ -22,6 +24,8 @@ class AcquisitionMode(StrEnum):
     himalayas_api = "himalayas_api"
     remote_ok_api = "remote_ok_api"
     we_work_remotely_rss = "we_work_remotely_rss"
+    jobspresso_wp_rest = "jobspresso_wp_rest"
+    randstad_html = "randstad_html"
 
 
 class RadarVerdict(StrEnum):

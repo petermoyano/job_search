@@ -1,0 +1,56 @@
+{
+  "jobspresso": [
+    {
+      "id": 101,
+      "date_gmt": "2026-08-12T10:00:00",
+      "link": "https://jobspresso.co/remote-work/hr-business-partner-senior/",
+      "title": {"rendered": "HR Business Partner Senior"},
+      "content": {"rendered": "<p>Buscamos HR Business Partner Senior con cinco años de experiencia en recursos humanos, selección, onboarding y relaciones laborales para el equipo de América Latina.</p>"},
+      "meta": {
+        "_company_name": "Global People Co",
+        "_job_location": "Worldwide",
+        "_application": "https://global-people.example/jobs/hrbp",
+        "_remote_position": "1",
+        "_filled": "0",
+        "_job_salary_min": "24000",
+        "_job_salary_max": "36000",
+        "_job_salary_currency": "USD",
+        "_job_salary_unit": "annual"
+      }
+    },
+    {
+      "id": 102,
+      "date_gmt": "2026-08-11T10:00:00",
+      "link": "https://jobspresso.co/remote-work/talent-acquisition-partner-senior/",
+      "title": {"rendered": "Talent Acquisition Partner Senior"},
+      "content": {"rendered": "<p>Remote Talent Acquisition role requiring five years of recruiting experience. Apply now.</p>"},
+      "meta": {
+        "_company_name": "US People Co",
+        "_job_location": "United States",
+        "_application": "https://us-people.example/jobs/ta",
+        "_remote_position": "1",
+        "_filled": "0"
+      }
+    },
+    {
+      "id": 103,
+      "date_gmt": "2026-08-10T10:00:00",
+      "link": "https://jobspresso.co/remote-work/people-partner-senior/",
+      "title": {"rendered": "People Partner Senior"},
+      "content": {"rendered": "<p>Remote People Partner for Latin America with five years of experience in people operations and onboarding.</p>"},
+      "meta": {
+        "_company_name": "Closed People Co",
+        "_job_location": "Latin America",
+        "_application": "https://closed-people.example/jobs/partner",
+        "_remote_position": "1",
+        "_filled": "1"
+      }
+    }
+  ],
+  "randstad_listing": "<html><body><h1>3 trabajos encontrados para recursos humanos</h1><a href='/trabajos/lider-de-adquisicion_malvinas-argentinas_1001/'>Líder de Adquisición y Gestión de Talento</a><a href='/trabajos/analista-rrhh_ssm-tucuman_1002/'>Analista de Recursos Humanos Semi Senior</a><a href='/trabajos/hrbp_godoy-cruz_1003/'>HR Business Partner Senior</a></body></html>",
+  "randstad_details": {
+    "1001": "<html><head><script type='application/ld+json'>{\"@context\":\"https://schema.org\",\"@type\":\"JobPosting\",\"datePosted\":\"2026-08-10T10:00:00+00:00\",\"validThrough\":\"2027-09-21T00:00:00+00:00\",\"description\":\"<p>Líder de adquisición con cinco años de experiencia en selección y onboarding. Modalidad de trabajo: Híbrida, tres días presenciales en GBA Norte y dos de home office. Inglés intermedio.</p>\",\"employmentType\":\"FULL_TIME\",\"hiringOrganization\":{\"@type\":\"Organization\",\"name\":\"Randstad AR\"},\"identifier\":{\"@type\":\"PropertyValue\",\"value\":\"P-1001\"},\"jobLocation\":{\"@type\":\"Place\",\"address\":{\"@type\":\"PostalAddress\",\"addressLocality\":\"Malvinas Argentinas\",\"addressRegion\":\"Buenos Aires\",\"addressCountry\":\"AR\"}},\"title\":\"Líder de Adquisición y Gestión de Talento\"}</script></head><body><a href='https://apply.example/1001'>Postularme</a></body></html>",
+    "1002": "<html><head><script type='application/ld+json'>{\"@context\":\"https://schema.org\",\"@type\":\"JobPosting\",\"datePosted\":\"2026-08-09T10:00:00+00:00\",\"validThrough\":\"2027-09-21T00:00:00+00:00\",\"description\":\"<p>Analista de Recursos Humanos Ssr con cinco años de experiencia generalista. Modalidad presencial en San Miguel de Tucumán.</p>\",\"employmentType\":\"FULL_TIME\",\"hiringOrganization\":{\"@type\":\"Organization\",\"name\":\"Randstad AR\"},\"identifier\":{\"@type\":\"PropertyValue\",\"value\":\"P-1002\"},\"jobLocation\":{\"@type\":\"Place\",\"address\":{\"@type\":\"PostalAddress\",\"addressLocality\":\"San Miguel de Tucumán\",\"addressRegion\":\"Tucumán\",\"addressCountry\":\"AR\"}},\"title\":\"Analista de Recursos Humanos Semi Senior\"}</script></head><body><a href='https://apply.example/1002'>Postularme</a></body></html>",
+    "1003": "<html><head><script type='application/ld+json'>{\"@context\":\"https://schema.org\",\"@type\":\"JobPosting\",\"datePosted\":\"2026-08-12T10:00:00+00:00\",\"validThrough\":\"2027-09-21T00:00:00+00:00\",\"description\":\"<p>HR Business Partner Senior con cinco años de experiencia en recursos humanos, selección, onboarding y relaciones laborales. Modalidad híbrida en Godoy Cruz, Mendoza.</p>\",\"employmentType\":\"FULL_TIME\",\"hiringOrganization\":{\"@type\":\"Organization\",\"name\":\"Randstad AR\"},\"identifier\":{\"@type\":\"PropertyValue\",\"value\":\"P-1003\"},\"jobLocation\":{\"@type\":\"Place\",\"address\":{\"@type\":\"PostalAddress\",\"addressLocality\":\"Godoy Cruz\",\"addressRegion\":\"Mendoza\",\"addressCountry\":\"AR\"}},\"title\":\"HR Business Partner Senior\"}</script></head><body><a href='https://apply.example/1003'>Postularme</a></body></html>"
+  }
+}

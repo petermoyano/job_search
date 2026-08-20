@@ -152,18 +152,17 @@ def _normalize_profile(
 
 
 def _upgrade_legacy_sources(profile_json: dict) -> dict:
-    """Apply source capabilities to profiles saved before structured acquisition existed."""
+    """Apply newly supported acquisition modes without overriding later user choices."""
     raw_sources = profile_json.get("ordered_sources")
-    if not isinstance(raw_sources, list) or any(
-        isinstance(source, dict) and "acquisition_mode" in source
-        for source in raw_sources
-    ):
+    if not isinstance(raw_sources, list):
         return profile_json
 
     structured = {
-        "himalayas": ("himalayas_api", "https://himalayas.app"),
-        "we_work_remotely": ("we_work_remotely_rss", "https://weworkremotely.com"),
-        "remote_ok": ("remote_ok_api", "https://remoteok.com"),
+        "himalayas": ("himalayas_api", "https://himalayas.app", 10),
+        "we_work_remotely": ("we_work_remotely_rss", "https://weworkremotely.com", 10),
+        "remote_ok": ("remote_ok_api", "https://remoteok.com", 15),
+        "jobspresso": ("jobspresso_wp_rest", "https://jobspresso.co", 10),
+        "randstad_ar": ("randstad_html", "https://www.randstad.com.ar", 10),
     }
     sources: list[dict] = []
     for source in raw_sources:
@@ -171,19 +170,26 @@ def _upgrade_legacy_sources(profile_json: dict) -> dict:
             continue
         upgraded = {**source}
         capability = structured.get(str(upgraded.get("id")))
-        if capability:
+        current_mode = upgraded.get("acquisition_mode")
+        if capability and current_mode in {None, "web_search"}:
             upgraded["acquisition_mode"] = capability[0]
             upgraded["attribution_url"] = capability[1]
             upgraded["enabled"] = True
-            upgraded["max_results"] = 15 if upgraded.get("id") == "remote_ok" else 10
-        else:
+            upgraded["max_results"] = capability[2]
+        elif current_mode is None:
             upgraded["acquisition_mode"] = "web_search"
         sources.append(upgraded)
 
-    priority = {"himalayas": 0, "we_work_remotely": 1, "remote_ok": 2}
+    priority = {
+        "himalayas": 0,
+        "we_work_remotely": 1,
+        "remote_ok": 2,
+        "jobspresso": 3,
+        "randstad_ar": 4,
+    }
     sources.sort(
         key=lambda source: (
-            priority.get(str(source.get("id")), 3),
+            priority.get(str(source.get("id")), 5),
             int(source.get("order") or 999),
         )
     )

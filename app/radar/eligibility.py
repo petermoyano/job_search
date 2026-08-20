@@ -880,10 +880,13 @@ def _detect_activity(
             closed_hits.append(
                 f"validThrough expired on {valid_through.date().isoformat()}"
             )
+    provider_status = str(candidate.metadata.get("provider_status") or "").casefold()
+    if provider_status in {"closed", "filled", "expired", "inactive"}:
+        closed_hits.append(f"provider status: {provider_status}")
     if closed_hits:
         return JobActivityStatus.closed, closed_hits
     if (
-        candidate.metadata.get("provider_status") == "active"
+        provider_status == "active"
         and candidate.metadata.get("application_url")
     ):
         return JobActivityStatus.open, ["provider: active application URL"]
