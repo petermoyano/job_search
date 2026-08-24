@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from uuid import UUID, uuid4
 
 import pytest
@@ -12,6 +13,11 @@ from app.db.base import Base
 from app.db.session import SessionLocal, engine
 from app.documents.auth import AuthContext, credential_store
 from app.documents.models import Document, DocumentStatus
+from app.documents.queue import (
+    QueueUnavailableError,
+    SqsDocumentProcessingQueue,
+    get_document_processing_queue,
+)
 from app.documents.repository import DocumentRepository
 from app.documents.schemas import UploadUrlRequest
 from app.documents.service import DocumentService, build_s3_key
@@ -29,6 +35,17 @@ JOB_SECRET = "test-job-search-secret"
 CRANE_SECRET = "test-crane-secret"
 JOB_HEADERS = {"Authorization": f"Bearer {JOB_SECRET}"}
 CRANE_HEADERS = {"Authorization": f"Bearer {CRANE_SECRET}"}
+
+
+class FakeQueue:
+    def __init__(self) -> None:
+        self.document_ids: list[UUID] = []
+        self.fail = False
+
+    def enqueue(self, *, document_id: UUID) -> None:
+        if self.fail:
+            raise QueueUnavailableError("queue unavailable")
+        self.document_ids.append(document_id)
 
 
 class FakeStorage:
@@ -85,16 +102,23 @@ def document_test_environment() -> FakeStorage:
     )
     credential_store.clear_cache()
 
+    assert engine.dialect.name == "sqlite"
     Base.metadata.create_all(bind=engine)
+    Document.__table__.drop(bind=engine, checkfirst=True)
+    Document.__table__.create(bind=engine)
     with SessionLocal() as session:
         session.execute(delete(Document))
         session.commit()
 
     storage = FakeStorage()
+    processing_queue = FakeQueue()
+    storage.processing_queue = processing_queue
     app.dependency_overrides[get_document_storage] = lambda: storage
+    app.dependency_overrides[get_document_processing_queue] = lambda: processing_queue
     yield storage
 
     app.dependency_overrides.pop(get_document_storage, None)
+    app.dependency_overrides.pop(get_document_processing_queue, None)
     credential_store.clear_cache()
     for name, value in original_values.items():
         setattr(settings, name, value)
@@ -191,6 +215,7 @@ def test_service_creates_pending_document(
         service = DocumentService(
             repository=DocumentRepository(session),
             storage=document_test_environment,
+            processing_queue=document_test_environment.processing_queue,
             settings=settings,
         )
         result = service.create_upload(
@@ -323,3 +348,102 @@ def test_get_unknown_document_returns_not_found() -> None:
             headers=JOB_HEADERS,
         )
     assert response.status_code == 404
+
+def test_sqs_queue_publishes_minimal_versioned_message(monkeypatch) -> None:
+    sent: dict[str, str] = {}
+
+    class RecordingSqsClient:
+        def send_message(self, **kwargs) -> None:
+            sent.update(kwargs)
+
+    monkeypatch.setattr(
+        "boto3.client",
+        lambda service_name, **_kwargs: RecordingSqsClient(),
+    )
+    queue = SqsDocumentProcessingQueue(
+        queue_url="https://sqs.example/processing",
+        region_name="sa-east-1",
+    )
+    document_id = uuid4()
+
+    queue.enqueue(document_id=document_id)
+
+    assert sent["QueueUrl"] == "https://sqs.example/processing"
+    assert json.loads(sent["MessageBody"]) == {
+        "version": 1,
+        "document_id": str(document_id),
+    }
+
+
+def test_complete_upload_enqueues_only_once(
+    document_test_environment: FakeStorage,
+) -> None:
+    with TestClient(app) as client:
+        created = client.post(
+            "/documents/upload-url",
+            headers=JOB_HEADERS,
+            json=valid_payload(),
+        )
+        document_id = created.json()["document_id"]
+        document_test_environment.objects[
+            (
+                document_test_environment.last_bucket,
+                document_test_environment.last_key,
+            )
+        ] = StoredObject(
+            size_bytes=128,
+            content_type="application/pdf",
+            metadata={"document-id": document_id},
+        )
+
+        first = client.post(
+            f"/documents/{document_id}/complete-upload",
+            headers=JOB_HEADERS,
+        )
+        second = client.post(
+            f"/documents/{document_id}/complete-upload",
+            headers=JOB_HEADERS,
+        )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert document_test_environment.processing_queue.document_ids == [
+        UUID(document_id)
+    ]
+
+
+def test_queue_failure_rolls_back_verified_completion(
+    document_test_environment: FakeStorage,
+) -> None:
+    with TestClient(app) as client:
+        created = client.post(
+            "/documents/upload-url",
+            headers=JOB_HEADERS,
+            json=valid_payload(),
+        )
+        document_id = created.json()["document_id"]
+        document_test_environment.objects[
+            (
+                document_test_environment.last_bucket,
+                document_test_environment.last_key,
+            )
+        ] = StoredObject(
+            size_bytes=128,
+            content_type="application/pdf",
+            metadata={"document-id": document_id},
+        )
+        document_test_environment.processing_queue.fail = True
+
+        completed = client.post(
+            f"/documents/{document_id}/complete-upload",
+            headers=JOB_HEADERS,
+        )
+        loaded = client.get(
+            f"/documents/{document_id}",
+            headers=JOB_HEADERS,
+        )
+
+    assert completed.status_code == 503
+    assert loaded.status_code == 200
+    assert loaded.json()["status"] == "PENDING_UPLOAD"
+    assert document_test_environment.processing_queue.document_ids == []

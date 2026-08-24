@@ -32,6 +32,13 @@ class StoredObject:
     metadata: dict[str, str]
 
 
+@dataclass(frozen=True)
+class StoredObjectContent:
+    size_bytes: int
+    metadata: dict[str, str]
+    body: bytes
+
+
 class DocumentStorage(Protocol):
     def create_upload_url(
         self,
@@ -44,6 +51,8 @@ class DocumentStorage(Protocol):
     ) -> PresignedUpload: ...
 
     def head_object(self, *, bucket: str, key: str) -> StoredObject: ...
+
+    def read_object(self, *, bucket: str, key: str) -> StoredObjectContent: ...
 
 
 class S3DocumentStorage:
@@ -109,6 +118,32 @@ class S3DocumentStorage:
             },
         )
 
+
+    def read_object(self, *, bucket: str, key: str) -> StoredObjectContent:
+        try:
+            response = self.client.get_object(Bucket=bucket, Key=key)
+            stream = response["Body"]
+            try:
+                body = stream.read()
+            finally:
+                stream.close()
+        except ClientError as exc:
+            error_code = str(exc.response.get("Error", {}).get("Code", ""))
+            if error_code in {"404", "NoSuchKey", "NotFound"}:
+                raise ObjectNotFoundError(key) from exc
+            raise StorageUnavailableError("Could not read uploaded object") from exc
+        except (BotoCoreError, OSError) as exc:
+            raise StorageUnavailableError("Could not read uploaded object") from exc
+        if not isinstance(body, bytes):
+            body = bytes(body)
+        return StoredObjectContent(
+            size_bytes=int(response["ContentLength"]),
+            metadata={
+                str(name).casefold(): str(value)
+                for name, value in response.get("Metadata", {}).items()
+            },
+            body=body,
+        )
 
 @lru_cache
 def get_document_storage() -> S3DocumentStorage:

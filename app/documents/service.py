@@ -7,6 +7,10 @@ from uuid import UUID, uuid4
 from app.core.config import Settings
 from app.documents.auth import AuthContext
 from app.documents.models import Document, DocumentStatus, now_utc
+from app.documents.queue import (
+    DocumentProcessingQueue,
+    QueueUnavailableError,
+)
 from app.documents.repository import DocumentRepository
 from app.documents.schemas import UploadUrlRequest
 from app.documents.storage import (
@@ -71,10 +75,12 @@ class DocumentService:
         *,
         repository: DocumentRepository,
         storage: DocumentStorage,
+        processing_queue: DocumentProcessingQueue,
         settings: Settings,
     ) -> None:
         self.repository = repository
         self.storage = storage
+        self.processing_queue = processing_queue
         self.settings = settings
 
     def create_upload(
@@ -168,8 +174,12 @@ class DocumentService:
             for_update=True,
         )
         if document.status == DocumentStatus.UPLOADED:
+            if document.processing_enqueued_at is None:
+                self._enqueue_processing(document)
             return document
         if document.status != DocumentStatus.PENDING_UPLOAD:
+            if document.uploaded_at is not None:
+                return document
             raise InvalidUploadStateError(
                 f"Upload cannot be completed from {document.status}"
             )
@@ -235,8 +245,7 @@ class DocumentService:
         document.uploaded_at = now_utc()
         document.error_code = None
         document.error_message = None
-        self.repository.commit()
-        self.repository.refresh(document)
+        self._enqueue_processing(document)
         LOGGER.info(
             "event=upload_completed document_id=%s tenant_id=%s source_app=%s status=%s",
             document.id,
@@ -245,6 +254,33 @@ class DocumentService:
             document.status,
         )
         return document
+
+    def _enqueue_processing(self, document: Document) -> None:
+        try:
+            self.processing_queue.enqueue(document_id=document.id)
+        except QueueUnavailableError:
+            self.repository.rollback()
+            LOGGER.exception(
+                "event=document_processing_failed_transient document_id=%s "
+                "tenant_id=%s source_app=%s previous_status=%s "
+                "error_code=QUEUE_UNAVAILABLE",
+                document.id,
+                document.tenant_id,
+                document.source_app,
+                document.status,
+            )
+            raise
+        document.processing_enqueued_at = now_utc()
+        self.repository.commit()
+        self.repository.refresh(document)
+        LOGGER.info(
+            "event=document_processing_enqueued document_id=%s tenant_id=%s "
+            "source_app=%s status=%s",
+            document.id,
+            document.tenant_id,
+            document.source_app,
+            document.status,
+        )
 
     def get_document(self, *, document_id: UUID, auth_context: AuthContext) -> Document:
         return self._get_scoped(

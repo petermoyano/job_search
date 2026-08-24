@@ -5,6 +5,9 @@ Parameters:
   ImageUri:
     Type: String
     Description: Immutable ECR image URI for the Lambda-compatible backend image.
+  WorkerImageUri:
+    Type: String
+    Description: Immutable ECR image URI for the document processing worker.
   FrontendOrigin:
     Type: String
     Default: https://job-search-fe.vercel.app
@@ -27,6 +30,19 @@ Parameters:
     Default: 900
     MinValue: 60
     MaxValue: 3600
+  DocumentProcessingVisibilityTimeoutSeconds:
+    Type: Number
+    Default: 360
+    MinValue: 60
+  DocumentProcessingMaxReceiveCount:
+    Type: Number
+    Default: 3
+    MinValue: 1
+  DocumentProcessingBatchSize:
+    Type: Number
+    Default: 5
+    MinValue: 1
+    MaxValue: 10
   JobSearchTenantId:
     Type: String
     Default: job-search
@@ -50,6 +66,17 @@ Resources:
       Tags:
         - Key: Application
           Value: job-search
+
+  DocumentProcessingLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/job-search-document-processor
+      RetentionInDays: 14
+      Tags:
+        - Key: Application
+          Value: job-search
+        - Key: BoundedContext
+          Value: documents
 
   DocumentBucket:
     Type: AWS::S3::Bucket
@@ -114,6 +141,40 @@ Resources:
             Condition:
               Bool:
                 aws:SecureTransport: "false"
+
+  DocumentProcessingDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      SqsManagedSseEnabled: true
+      MessageRetentionPeriod: 1209600
+      Tags:
+        - Key: Application
+          Value: job-search
+        - Key: BoundedContext
+          Value: documents
+        - Key: QueueRole
+          Value: dead-letter
+
+  DocumentProcessingQueue:
+    Type: AWS::SQS::Queue
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      SqsManagedSseEnabled: true
+      MessageRetentionPeriod: 345600
+      VisibilityTimeout: !Ref DocumentProcessingVisibilityTimeoutSeconds
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt DocumentProcessingDeadLetterQueue.Arn
+        maxReceiveCount: !Ref DocumentProcessingMaxReceiveCount
+      Tags:
+        - Key: Application
+          Value: job-search
+        - Key: BoundedContext
+          Value: documents
+        - Key: QueueRole
+          Value: processing
 
   JobSearchDocumentClientSecret:
     Type: AWS::SecretsManager::Secret
@@ -193,9 +254,123 @@ Resources:
                 Resource:
                   - !Ref JobSearchDocumentClientSecret
                   - !Ref CraneIntelligenceDocumentClientSecret
+              - Sid: SendDocumentProcessingMessage
+                Effect: Allow
+                Action: sqs:SendMessage
+                Resource: !GetAtt DocumentProcessingQueue.Arn
       Tags:
         - Key: Application
           Value: job-search
+
+  DocumentProcessingExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: job-search-document-processing
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ReadDatabaseUrlParameter
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub >-
+                  arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${DatabaseUrlParameterName}
+        - PolicyName: ConsumeDocumentProcessingQueue
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                Resource: !GetAtt DocumentProcessingQueue.Arn
+        - PolicyName: ReadDocumentObjects
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ListDocumentPrefix
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt DocumentBucket.Arn
+                Condition:
+                  StringLike:
+                    s3:prefix:
+                      - documents/*
+              - Sid: ReadDocumentObjects
+                Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub '${DocumentBucket.Arn}/documents/*'
+      Tags:
+        - Key: Application
+          Value: job-search
+        - Key: BoundedContext
+          Value: documents
+
+  DocumentProcessingFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: DocumentProcessingLogGroup
+    Properties:
+      FunctionName: job-search-document-processor
+      Description: Asynchronous deterministic preprocessing for uploaded documents.
+      PackageType: Image
+      Code:
+        ImageUri: !Ref WorkerImageUri
+      Role: !GetAtt DocumentProcessingExecutionRole.Arn
+      Architectures:
+        - x86_64
+      MemorySize: 512
+      Timeout: 60
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          APP_ENV: production
+          DATABASE_URL_SSM_PARAMETER: !Ref DatabaseUrlParameterName
+          INITIALIZE_DATABASE: "false"
+          DOCUMENTS_MAX_FILE_SIZE_BYTES: !Ref DocumentsMaxFileSizeBytes
+          DOCUMENT_PROCESSING_LEASE_SECONDS: "300"
+      Tags:
+        - Key: Application
+          Value: job-search
+        - Key: BoundedContext
+          Value: documents
+
+  DocumentProcessingEventSourceMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref DocumentProcessingFunction
+      EventSourceArn: !GetAtt DocumentProcessingQueue.Arn
+      Enabled: true
+      BatchSize: !Ref DocumentProcessingBatchSize
+      MaximumBatchingWindowInSeconds: 0
+      FunctionResponseTypes:
+        - ReportBatchItemFailures
+
+  GitHubWorkerDeployPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: job-search-worker-github-deploy
+      Roles:
+        - job-search-github-deploy
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - lambda:GetFunction
+              - lambda:GetFunctionConfiguration
+              - lambda:UpdateFunctionCode
+            Resource: !GetAtt DocumentProcessingFunction.Arn
 
   BackendFunction:
     Type: AWS::Lambda::Function
@@ -224,6 +399,8 @@ Resources:
           DOCUMENTS_S3_BUCKET: !Ref DocumentBucket
           DOCUMENTS_MAX_FILE_SIZE_BYTES: !Ref DocumentsMaxFileSizeBytes
           DOCUMENTS_UPLOAD_URL_EXPIRES_SECONDS: !Ref DocumentsUploadUrlExpiresSeconds
+          DOCUMENT_PROCESSING_QUEUE_URL: !Ref DocumentProcessingQueue
+          DOCUMENT_PROCESSING_LEASE_SECONDS: "300"
           DOCUMENT_CLIENT_SECRET_IDS: !Join
             - ","
             - - !Ref JobSearchDocumentClientSecret
@@ -278,3 +455,21 @@ Outputs:
   CraneIntelligenceDocumentClientSecretArn:
     Description: Secret ARN for the Crane Intelligence server-side client.
     Value: !Ref CraneIntelligenceDocumentClientSecret
+  DocumentProcessingQueueUrl:
+    Description: URL of the asynchronous document processing queue.
+    Value: !Ref DocumentProcessingQueue
+  DocumentProcessingQueueArn:
+    Description: ARN of the asynchronous document processing queue.
+    Value: !GetAtt DocumentProcessingQueue.Arn
+  DocumentProcessingDeadLetterQueueUrl:
+    Description: URL of the document processing dead letter queue.
+    Value: !Ref DocumentProcessingDeadLetterQueue
+  DocumentProcessingDeadLetterQueueArn:
+    Description: ARN of the document processing dead letter queue.
+    Value: !GetAtt DocumentProcessingDeadLetterQueue.Arn
+  DocumentProcessingFunctionName:
+    Value: !Ref DocumentProcessingFunction
+  DocumentProcessingFunctionArn:
+    Value: !GetAtt DocumentProcessingFunction.Arn
+  DocumentProcessingExecutionRoleArn:
+    Value: !GetAtt DocumentProcessingExecutionRole.Arn

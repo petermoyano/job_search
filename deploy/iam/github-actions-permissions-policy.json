@@ -31,6 +31,16 @@
         "lambda:UpdateFunctionCode"
       ],
       "Resource": "arn:aws:lambda:sa-east-1:535379468109:function:job-search-api"
+    },
+    {
+      "Sid": "DeployDocumentProcessingLambda",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:GetFunction",
+        "lambda:GetFunctionConfiguration",
+        "lambda:UpdateFunctionCode"
+      ],
+      "Resource": "arn:aws:lambda:sa-east-1:535379468109:function:job-search-document-processor"
     }
   ]
 }

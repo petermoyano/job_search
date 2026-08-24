@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     documents_s3_bucket: str = "local-documents"
     documents_max_file_size_bytes: int = 20 * 1024 * 1024
     documents_upload_url_expires_seconds: int = 900
+    document_processing_queue_url: str = ""
+    document_processing_lease_seconds: int = 300
     document_client_secret_ids: str = ""
     document_client_keys_json: str | None = Field(default=None, repr=False)
     document_auth_cache_ttl_seconds: int = 300

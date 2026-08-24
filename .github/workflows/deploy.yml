@@ -15,6 +15,7 @@ env:
   AWS_ROLE_ARN: arn:aws:iam::535379468109:role/job-search-github-deploy
   ECR_REPOSITORY: job-search-api
   LAMBDA_FUNCTION: job-search-api
+  WORKER_LAMBDA_FUNCTION: job-search-document-processor
   FRONTEND_ORIGIN: https://job-search-fe.vercel.app
   FRONTEND_PREVIEW_ORIGIN: https://job-search-preview-petermoyanos-projects.vercel.app
 
@@ -70,32 +71,53 @@ jobs:
         id: ecr-login
         uses: aws-actions/amazon-ecr-login@d539f0932e70871a027e9d5a9d8fc38589180a64 # v2.1.6
 
-      - name: Build and push immutable image
-        id: build-image
+      - name: Build and push immutable API and worker images
+        id: build-images
         env:
           ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          IMAGE_URI="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          API_IMAGE_URI="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          WORKER_IMAGE_URI="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG-worker"
+
           docker buildx build \
             --file Dockerfile.lambda \
             --platform linux/amd64 \
             --provenance=false \
             --pull \
             --load \
-            --tag "$IMAGE_URI" \
+            --tag "$API_IMAGE_URI" \
             .
-          docker push "$IMAGE_URI"
-          echo "image=$IMAGE_URI" >> "$GITHUB_OUTPUT"
+          docker push "$API_IMAGE_URI"
 
-      - name: Deploy Lambda image
+          docker buildx build \
+            --file Dockerfile.worker \
+            --platform linux/amd64 \
+            --provenance=false \
+            --pull \
+            --load \
+            --tag "$WORKER_IMAGE_URI" \
+            .
+          docker push "$WORKER_IMAGE_URI"
+
+          echo "api_image=$API_IMAGE_URI" >> "$GITHUB_OUTPUT"
+          echo "worker_image=$WORKER_IMAGE_URI" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy API and worker Lambda images
         run: |
           aws lambda update-function-code \
             --function-name "$LAMBDA_FUNCTION" \
-            --image-uri "${{ steps.build-image.outputs.image }}" \
+            --image-uri "${{ steps.build-images.outputs.api_image }}" \
             --query '{FunctionName:FunctionName,Version:Version,State:State}'
           aws lambda wait function-updated \
             --function-name "$LAMBDA_FUNCTION"
+
+          aws lambda update-function-code \
+            --function-name "$WORKER_LAMBDA_FUNCTION" \
+            --image-uri "${{ steps.build-images.outputs.worker_image }}" \
+            --query '{FunctionName:FunctionName,Version:Version,State:State}'
+          aws lambda wait function-updated \
+            --function-name "$WORKER_LAMBDA_FUNCTION"
 
       - name: Read Function URL
         id: function-url
@@ -147,7 +169,9 @@ jobs:
             echo "### Production deployment"
             echo
             echo "- Commit: \`$GITHUB_SHA\`"
-            echo "- Image: \`${{ steps.build-image.outputs.image }}\`"
-            echo "- Function: \`$LAMBDA_FUNCTION\`"
+            echo "- API image: \`${{ steps.build-images.outputs.api_image }}\`"
+            echo "- Worker image: \`${{ steps.build-images.outputs.worker_image }}\`"
+            echo "- API function: \`$LAMBDA_FUNCTION\`"
+            echo "- Worker function: \`$WORKER_LAMBDA_FUNCTION\`"
             echo "- API: $API_BASE_URL"
           } >> "$GITHUB_STEP_SUMMARY"

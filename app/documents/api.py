@@ -9,6 +9,11 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.db.session import get_db
 from app.documents.auth import AuthContext, get_auth_context
+from app.documents.queue import (
+    DocumentProcessingQueue,
+    QueueUnavailableError,
+    get_document_processing_queue,
+)
 from app.documents.repository import DocumentRepository
 from app.documents.schemas import DocumentRead, UploadUrlRequest, UploadUrlResponse
 from app.documents.service import (
@@ -33,10 +38,14 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 def get_document_service(
     db: Annotated[Session, Depends(get_db)],
     storage: Annotated[DocumentStorage, Depends(get_document_storage)],
+    processing_queue: Annotated[
+        DocumentProcessingQueue, Depends(get_document_processing_queue)
+    ],
 ) -> DocumentService:
     return DocumentService(
         repository=DocumentRepository(db),
         storage=storage,
+        processing_queue=processing_queue,
         settings=get_settings(),
     )
 
@@ -97,6 +106,10 @@ def complete_upload(
     except StorageUnavailableError as exc:
         raise HTTPException(
             status_code=502, detail="Document storage unavailable"
+        ) from exc
+    except QueueUnavailableError as exc:
+        raise HTTPException(
+            status_code=503, detail="Document processing queue unavailable"
         ) from exc
 
 

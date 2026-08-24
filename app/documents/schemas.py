@@ -58,6 +58,7 @@ class DocumentRead(BaseModel):
     filename: str
     mime_type: str
     file_size_bytes: int
+    sha256: str | None
     status: DocumentStatus
     classification: str | None
     relevance_score: float | None

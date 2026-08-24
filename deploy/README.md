@@ -107,3 +107,48 @@ DATABASE_URL='<direct-postgres-url>' uv run alembic upgrade head
 Secret values can be read by authorized operators from the two secret ARNs in
 the stack outputs; values are never emitted by CloudFormation or committed to
 Git.
+
+
+## Document Preprocessing P1A
+
+A verified upload is explicitly enqueued by `complete-upload`; S3 events are not
+used. The queue payload is limited to `{"version":1,"document_id":"<uuid>"}`.
+The worker always reloads bucket, key, tenant, source application, expected size,
+and policy from PostgreSQL.
+
+CloudFormation owns:
+
+- an encrypted standard processing queue with a 360-second visibility timeout;
+- an encrypted dead-letter queue with 14-day retention and a redrive threshold
+  of three receives;
+- the `job-search-document-processor` Lambda and its 14-day log group;
+- a batch-size-five SQS event source configured with
+  `ReportBatchItemFailures`;
+- separate least-privilege worker IAM for SQS consumption, the document S3
+  prefix, CloudWatch logs, and the existing database URL SSM parameter.
+
+The API records `processing_enqueued_at` while holding the document row lock.
+A queue error rolls the database transaction back and returns HTTP 503, so a
+client retry can enqueue safely. A completed retry with an enqueue timestamp
+does not publish another message. Because SQS Standard remains at-least-once,
+the worker also atomically claims only `UPLOADED` rows. Recent
+`PROCESSING` duplicates are acknowledged without reading S3; a processing
+lease allows a message redelivered after a hard timeout to reclaim stale work.
+
+The worker validates actual object length, configured and declared sizes,
+object metadata, and the `%PDF-` signature before calculating SHA-256.
+Permanent document errors become `FAILED` and are acknowledged. S3/database
+infrastructure failures release the row back to `UPLOADED` where possible and
+return the message identifier as a partial batch failure. SQS then retries it
+and eventually moves repeated failures to the DLQ.
+
+The production workflow builds two immutable images in the existing ECR
+repository:
+
+- `<git-sha>` from `Dockerfile.lambda` for FastAPI and Lambda Web Adapter;
+- `<git-sha>-worker` from `Dockerfile.worker` for the native Lambda handler.
+
+Both runtime Lambdas use Neon's pooled URL from SSM. Alembic continues to use a
+direct Neon URL for schema operations. Pytest forces SQLite in memory before
+importing application sessions so a developer's local `.env` can never make
+the test suite mutate Neon.

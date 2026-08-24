@@ -33,6 +33,7 @@ class DocumentStatus(StrEnum):
     REJECTED = "REJECTED"
     NEEDS_REVIEW = "NEEDS_REVIEW"
     PROCESSING = "PROCESSING"
+    PREPROCESSED = "PREPROCESSED"
     RAG_INDEXED = "RAG_INDEXED"
     DATA_EXTRACTED = "DATA_EXTRACTED"
     COMPLETED = "COMPLETED"
@@ -100,6 +101,15 @@ class Document(Base):
         nullable=False,
     )
     uploaded_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    processing_enqueued_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    processing_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    preprocessed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
 
