@@ -12,6 +12,27 @@ Parameters:
     Type: String
     Default: '^https://job-search-[a-z0-9-]+-petermoyanos-projects[.]vercel[.]app$'
     Description: Narrow allowlist pattern for this project's Vercel deployment URLs.
+  DocumentUploadCorsOrigins:
+    Type: CommaDelimitedList
+    Default: >-
+      http://localhost:3000,http://127.0.0.1:3000,https://job-search-fe.vercel.app,https://151.vercel.app
+    Description: Exact browser origins allowed to PUT documents with presigned URLs.
+  DocumentsMaxFileSizeBytes:
+    Type: Number
+    Default: 20971520
+    MinValue: 1
+    Description: Maximum accepted PDF size in bytes.
+  DocumentsUploadUrlExpiresSeconds:
+    Type: Number
+    Default: 900
+    MinValue: 60
+    MaxValue: 3600
+  JobSearchTenantId:
+    Type: String
+    Default: job-search
+  CraneIntelligenceTenantId:
+    Type: String
+    Default: creactis
   TavilySecretId:
     Type: String
     Default: job-search/tavily-api-key
@@ -29,6 +50,106 @@ Resources:
       Tags:
         - Key: Application
           Value: job-search
+
+  DocumentBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: RemoveIncompleteMultipartUploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+          - Id: ExpireOldNoncurrentVersions
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 30
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - content-type
+              - x-amz-meta-document-id
+            AllowedMethods:
+              - PUT
+            AllowedOrigins: !Ref DocumentUploadCorsOrigins
+            ExposedHeaders:
+              - ETag
+            MaxAge: 900
+      Tags:
+        - Key: Application
+          Value: job-search
+        - Key: BoundedContext
+          Value: documents
+
+  DocumentBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref DocumentBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt DocumentBucket.Arn
+              - !Sub '${DocumentBucket.Arn}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
+
+  JobSearchDocumentClientSecret:
+    Type: AWS::SecretsManager::Secret
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Description: Server-side document API credential for the job-search application.
+      GenerateSecretString:
+        SecretStringTemplate: !Sub >-
+          {"source_app":"job-search","tenant_ids":["${JobSearchTenantId}"]}
+        GenerateStringKey: client_secret
+        PasswordLength: 48
+        ExcludePunctuation: true
+      Tags:
+        - Key: Application
+          Value: job-search
+        - Key: DocumentSourceApp
+          Value: job-search
+
+  CraneIntelligenceDocumentClientSecret:
+    Type: AWS::SecretsManager::Secret
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Description: Server-side document API credential for Crane Intelligence.
+      GenerateSecretString:
+        SecretStringTemplate: !Sub >-
+          {"source_app":"crane-intelligence","tenant_ids":["${CraneIntelligenceTenantId}"]}
+        GenerateStringKey: client_secret
+        PasswordLength: 48
+        ExcludePunctuation: true
+      Tags:
+        - Key: Application
+          Value: job-search
+        - Key: DocumentSourceApp
+          Value: crane-intelligence
 
   BackendExecutionRole:
     Type: AWS::IAM::Role
@@ -52,6 +173,22 @@ Resources:
                 Action: ssm:GetParameter
                 Resource: !Sub >-
                   arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${DatabaseUrlParameterName}
+        - PolicyName: ManageDocumentUploads
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: PutAndInspectDocumentObjects
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub '${DocumentBucket.Arn}/documents/*'
+              - Sid: ReadDocumentClientSecrets
+                Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource:
+                  - !Ref JobSearchDocumentClientSecret
+                  - !Ref CraneIntelligenceDocumentClientSecret
       Tags:
         - Key: Application
           Value: job-search
@@ -80,6 +217,13 @@ Resources:
           CORS_ORIGINS: !Sub '["http://localhost:3000","http://127.0.0.1:3000","${FrontendOrigin}"]'
           CORS_ORIGIN_REGEX: !Ref FrontendOriginRegex
           TAVILY_API_KEY: !Sub '{{resolve:secretsmanager:${TavilySecretId}:SecretString}}'
+          DOCUMENTS_S3_BUCKET: !Ref DocumentBucket
+          DOCUMENTS_MAX_FILE_SIZE_BYTES: !Ref DocumentsMaxFileSizeBytes
+          DOCUMENTS_UPLOAD_URL_EXPIRES_SECONDS: !Ref DocumentsUploadUrlExpiresSeconds
+          DOCUMENT_CLIENT_SECRET_IDS: !Join
+            - ","
+            - - !Ref JobSearchDocumentClientSecret
+              - !Ref CraneIntelligenceDocumentClientSecret
           AWS_LWA_PORT: "8000"
           AWS_LWA_READINESS_CHECK_PATH: /health
           AWS_LWA_ENABLE_COMPRESSION: "true"
@@ -121,3 +265,12 @@ Outputs:
     Value: !GetAtt BackendFunctionUrl.FunctionUrl
   ExecutionRoleArn:
     Value: !GetAtt BackendExecutionRole.Arn
+  DocumentBucketName:
+    Description: Private bucket containing original uploaded documents.
+    Value: !Ref DocumentBucket
+  JobSearchDocumentClientSecretArn:
+    Description: Secret ARN for the job-search server-side client.
+    Value: !Ref JobSearchDocumentClientSecret
+  CraneIntelligenceDocumentClientSecretArn:
+    Description: Secret ARN for the Crane Intelligence server-side client.
+    Value: !Ref CraneIntelligenceDocumentClientSecret

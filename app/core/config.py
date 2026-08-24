@@ -33,6 +33,13 @@ class Settings(BaseSettings):
     tavily_api_key: str | None = Field(default=None, repr=False)
     llm_model: str = "gpt-4.1-mini"
     initialize_database: bool = True
+    aws_region: str = "sa-east-1"
+    documents_s3_bucket: str = "local-documents"
+    documents_max_file_size_bytes: int = 20 * 1024 * 1024
+    documents_upload_url_expires_seconds: int = 900
+    document_client_secret_ids: str = ""
+    document_client_keys_json: str | None = Field(default=None, repr=False)
+    document_auth_cache_ttl_seconds: int = 300
     cors_origins: list[str] = Field(
         default_factory=lambda: [
             "http://localhost:3000",

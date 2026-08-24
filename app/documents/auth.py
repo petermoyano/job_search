@@ -1,0 +1,172 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from hmac import compare_digest
+import json
+import logging
+from threading import Lock
+from time import monotonic
+
+from botocore.exceptions import BotoCoreError, ClientError
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+
+from app.core.config import Settings, get_settings
+
+
+LOGGER = logging.getLogger(__name__)
+bearer_scheme = HTTPBearer(auto_error=False)
+
+
+@dataclass(frozen=True)
+class AuthContext:
+    source_app: str
+    tenant_ids: frozenset[str]
+
+    def allows(self, *, source_app: str, tenant_id: str) -> bool:
+        return source_app == self.source_app and tenant_id in self.tenant_ids
+
+
+class CredentialConfigurationError(Exception):
+    pass
+
+
+class DocumentCredentialStore:
+    def __init__(self) -> None:
+        self._lock = Lock()
+        self._expires_at = 0.0
+        self._entries: tuple[tuple[str, AuthContext], ...] = ()
+
+    def clear_cache(self) -> None:
+        with self._lock:
+            self._expires_at = 0.0
+            self._entries = ()
+
+    def authenticate(self, token: str, settings: Settings) -> AuthContext | None:
+        entries = self._get_entries(settings)
+        matched_context: AuthContext | None = None
+        for expected_token, context in entries:
+            if compare_digest(token, expected_token):
+                matched_context = context
+        return matched_context
+
+    def _get_entries(self, settings: Settings) -> tuple[tuple[str, AuthContext], ...]:
+        now = monotonic()
+        with self._lock:
+            if self._entries and now < self._expires_at:
+                return self._entries
+            entries = self._load_entries(settings)
+            self._entries = entries
+            self._expires_at = now + settings.document_auth_cache_ttl_seconds
+            return entries
+
+    def _load_entries(self, settings: Settings) -> tuple[tuple[str, AuthContext], ...]:
+        if settings.document_client_keys_json:
+            if settings.app_env == "production":
+                raise CredentialConfigurationError(
+                    "Inline document client keys are disabled in production"
+                )
+            return self._parse_inline_entries(settings.document_client_keys_json)
+
+        secret_ids = [
+            value.strip()
+            for value in settings.document_client_secret_ids.split(",")
+            if value.strip()
+        ]
+        if not secret_ids:
+            raise CredentialConfigurationError(
+                "No document client credentials are configured"
+            )
+
+        import boto3  # type: ignore[import-untyped]
+
+        client = boto3.client("secretsmanager", region_name=settings.aws_region)
+        entries: list[tuple[str, AuthContext]] = []
+        try:
+            for secret_id in secret_ids:
+                response = client.get_secret_value(SecretId=secret_id)
+                secret_string = response.get("SecretString")
+                if not isinstance(secret_string, str):
+                    raise CredentialConfigurationError(
+                        "Document client secret must contain a JSON SecretString"
+                    )
+                payload = json.loads(secret_string)
+                entries.append(self._entry_from_payload(payload))
+        except (BotoCoreError, ClientError, json.JSONDecodeError) as exc:
+            raise CredentialConfigurationError(
+                "Could not load document client credentials"
+            ) from exc
+        return tuple(entries)
+
+    def _parse_inline_entries(
+        self, raw_value: str
+    ) -> tuple[tuple[str, AuthContext], ...]:
+        try:
+            payload = json.loads(raw_value)
+        except json.JSONDecodeError as exc:
+            raise CredentialConfigurationError(
+                "DOCUMENT_CLIENT_KEYS_JSON must be valid JSON"
+            ) from exc
+        if not isinstance(payload, dict):
+            raise CredentialConfigurationError(
+                "DOCUMENT_CLIENT_KEYS_JSON must be a JSON object"
+            )
+        entries: list[tuple[str, AuthContext]] = []
+        for client_secret, scope in payload.items():
+            if not isinstance(scope, dict):
+                raise CredentialConfigurationError("Invalid inline client scope")
+            entries.append(
+                self._entry_from_payload({"client_secret": client_secret, **scope})
+            )
+        return tuple(entries)
+
+    @staticmethod
+    def _entry_from_payload(payload: object) -> tuple[str, AuthContext]:
+        if not isinstance(payload, dict):
+            raise CredentialConfigurationError("Invalid client secret payload")
+        client_secret = payload.get("client_secret")
+        source_app = payload.get("source_app")
+        tenant_ids = payload.get("tenant_ids")
+        if (
+            not isinstance(client_secret, str)
+            or not client_secret
+            or not isinstance(source_app, str)
+            or not source_app
+            or not isinstance(tenant_ids, list)
+            or not tenant_ids
+            or not all(isinstance(value, str) and value for value in tenant_ids)
+        ):
+            raise CredentialConfigurationError("Invalid client secret scope")
+        return (
+            client_secret,
+            AuthContext(source_app=source_app, tenant_ids=frozenset(tenant_ids)),
+        )
+
+
+credential_store = DocumentCredentialStore()
+
+
+def get_auth_context(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+) -> AuthContext:
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Document client authentication required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    try:
+        context = credential_store.authenticate(credentials.credentials, get_settings())
+    except CredentialConfigurationError as exc:
+        LOGGER.exception("event=document_auth_configuration_failed")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Document authentication is not available",
+        ) from exc
+    if context is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid document client credential",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return context

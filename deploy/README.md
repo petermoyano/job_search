@@ -70,3 +70,40 @@ queries.
 Every deployment uses an immutable Git SHA image tag. To roll back, update the
 function code to a previously known-good ECR image URI and wait for the function
 update to complete.
+
+## Document Ingestion P0
+
+CloudFormation also owns the private document-ingestion resources:
+
+- an automatically named S3 bucket with public access blocked, AES-256
+  server-side encryption, bucket-owner-enforced object ownership, versioning,
+  and a short retention policy for old noncurrent versions;
+- least-privilege Lambda access to PUT and inspect only the `documents/*`
+  prefix;
+- one generated Secrets Manager client credential for `job-search` and one
+  for `crane-intelligence`;
+- Lambda environment configuration for the bucket, the 20 MiB limit, the
+  15-minute presigned URL lifetime, and the secret ARNs.
+
+The `/documents/*` endpoints require `Authorization: Bearer <client-secret>`.
+The client secret is intended only for a Next.js Route Handler or another
+server-side caller. It must never use a `NEXT_PUBLIC_*` variable. Each secret
+contains its allowed `source_app` and tenant list, so requests and reads are
+always scope-filtered.
+
+The upload client must send every header returned in `required_headers` with
+the presigned PUT. P0 signs and later verifies both `Content-Type:
+application/pdf` and `x-amz-meta-document-id`.
+
+The production application uses Neon's pooled URL from
+`/job-search/database-url`. Run Alembic migrations with a direct Neon
+connection, as recommended for schema operations, before deploying application
+code that depends on a new revision:
+
+```bash
+DATABASE_URL='<direct-postgres-url>' uv run alembic upgrade head
+```
+
+Secret values can be read by authorized operators from the two secret ARNs in
+the stack outputs; values are never emitted by CloudFormation or committed to
+Git.

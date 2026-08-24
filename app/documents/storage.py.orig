@@ -1,0 +1,107 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from functools import lru_cache
+from typing import Protocol
+from uuid import UUID
+
+from botocore.exceptions import BotoCoreError, ClientError
+
+from app.core.config import get_settings
+
+
+class ObjectNotFoundError(Exception):
+    pass
+
+
+class StorageUnavailableError(Exception):
+    pass
+
+
+@dataclass(frozen=True)
+class PresignedUpload:
+    url: str
+    required_headers: dict[str, str]
+
+
+@dataclass(frozen=True)
+class StoredObject:
+    size_bytes: int
+    content_type: str | None
+    metadata: dict[str, str]
+
+
+class DocumentStorage(Protocol):
+    def create_upload_url(
+        self,
+        *,
+        bucket: str,
+        key: str,
+        document_id: UUID,
+        expires_in: int,
+    ) -> PresignedUpload: ...
+
+    def head_object(self, *, bucket: str, key: str) -> StoredObject: ...
+
+
+class S3DocumentStorage:
+    def __init__(self, *, region_name: str) -> None:
+        import boto3  # type: ignore[import-untyped]
+
+        self.client = boto3.client("s3", region_name=region_name)
+
+    def create_upload_url(
+        self,
+        *,
+        bucket: str,
+        key: str,
+        document_id: UUID,
+        expires_in: int,
+    ) -> PresignedUpload:
+        document_id_text = str(document_id)
+        try:
+            url = self.client.generate_presigned_url(
+                "put_object",
+                Params={
+                    "Bucket": bucket,
+                    "Key": key,
+                    "ContentType": "application/pdf",
+                    "Metadata": {"document-id": document_id_text},
+                },
+                ExpiresIn=expires_in,
+                HttpMethod="PUT",
+            )
+        except (BotoCoreError, ClientError) as exc:
+            raise StorageUnavailableError("Could not generate upload URL") from exc
+        return PresignedUpload(
+            url=url,
+            required_headers={
+                "Content-Type": "application/pdf",
+                "x-amz-meta-document-id": document_id_text,
+            },
+        )
+
+    def head_object(self, *, bucket: str, key: str) -> StoredObject:
+        try:
+            response = self.client.head_object(Bucket=bucket, Key=key)
+        except ClientError as exc:
+            error_code = str(exc.response.get("Error", {}).get("Code", ""))
+            if error_code in {"404", "NoSuchKey", "NotFound"}:
+                raise ObjectNotFoundError(key) from exc
+            raise StorageUnavailableError("Could not inspect uploaded object") from exc
+        except BotoCoreError as exc:
+            raise StorageUnavailableError("Could not inspect uploaded object") from exc
+        return StoredObject(
+            size_bytes=int(response["ContentLength"]),
+            content_type=response.get("ContentType"),
+            metadata={
+                str(key).casefold(): str(value)
+                for key, value in response.get("Metadata", {}).items()
+            },
+        )
+
+
+@lru_cache
+def get_document_storage() -> S3DocumentStorage:
+    settings = get_settings()
+    return S3DocumentStorage(region_name=settings.aws_region)
