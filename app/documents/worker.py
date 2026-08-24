@@ -17,6 +17,8 @@ from app.documents.storage import get_document_storage
 
 
 LOGGER = logging.getLogger(__name__)
+logging.getLogger().setLevel(logging.INFO)
+logging.getLogger("app").setLevel(logging.INFO)
 
 
 def handler(event: dict[str, Any], _context: Any) -> dict[str, list[dict[str, str]]]:
