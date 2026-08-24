@@ -177,6 +177,10 @@ Resources:
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
+              - Sid: ListDocumentBucket
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt DocumentBucket.Arn
               - Sid: PutAndInspectDocumentObjects
                 Effect: Allow
                 Action:

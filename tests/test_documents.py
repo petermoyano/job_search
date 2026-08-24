@@ -18,6 +18,7 @@ from app.documents.service import DocumentService, build_s3_key
 from app.documents.storage import (
     ObjectNotFoundError,
     PresignedUpload,
+    S3DocumentStorage,
     StoredObject,
     get_document_storage,
 )
@@ -143,6 +144,43 @@ def test_s3_key_does_not_use_original_filename() -> None:
         "documents/creactis/crane-intelligence/halliburton-demo/"
         f"{document_id}/original.pdf"
     )
+
+
+def test_s3_storage_uses_regional_endpoint_and_signed_constraints(
+    monkeypatch,
+) -> None:
+    captured_client_options: dict[str, object] = {}
+    captured_presign: dict[str, object] = {}
+
+    class RecordingClient:
+        def generate_presigned_url(self, operation, **kwargs):
+            captured_presign["operation"] = operation
+            captured_presign.update(kwargs)
+            return "https://regional-upload.example/signed"
+
+    def fake_client(service_name: str, **kwargs):
+        captured_client_options["service_name"] = service_name
+        captured_client_options.update(kwargs)
+        return RecordingClient()
+
+    monkeypatch.setattr("boto3.client", fake_client)
+    storage = S3DocumentStorage(region_name="sa-east-1")
+    document_id = uuid4()
+    storage.create_upload_url(
+        bucket="private-bucket",
+        key=f"documents/example/{document_id}/original.pdf",
+        document_id=document_id,
+        file_size_bytes=321,
+        expires_in=900,
+    )
+
+    assert captured_client_options["endpoint_url"] == (
+        "https://s3.sa-east-1.amazonaws.com"
+    )
+    params = captured_presign["Params"]
+    assert params["ContentType"] == "application/pdf"
+    assert params["ContentLength"] == 321
+    assert params["Metadata"] == {"document-id": str(document_id)}
 
 
 def test_service_creates_pending_document(

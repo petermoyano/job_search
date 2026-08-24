@@ -5,6 +5,7 @@ from functools import lru_cache
 from typing import Protocol
 from uuid import UUID
 
+from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
 from app.core.config import get_settings
@@ -49,7 +50,12 @@ class S3DocumentStorage:
     def __init__(self, *, region_name: str) -> None:
         import boto3  # type: ignore[import-untyped]
 
-        self.client = boto3.client("s3", region_name=region_name)
+        self.client = boto3.client(
+            "s3",
+            region_name=region_name,
+            endpoint_url=f"https://s3.{region_name}.amazonaws.com",
+            config=Config(signature_version="s3v4", s3={"addressing_style": "virtual"}),
+        )
 
     def create_upload_url(
         self,
