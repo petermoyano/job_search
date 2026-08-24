@@ -376,8 +376,9 @@ def assess_candidate_eligibility(
             language_reason = "The vacancy description language could not be verified."
         checks.append(_check("description_language", language_status, language_reason))
 
-    if policy.require_spanish_application:
-        if application_language == "es":
+    required_application_language = policy.required_application_language or ("es" if policy.require_spanish_application else None)
+    if required_application_language:
+        if application_language == required_application_language:
             application_status = EligibilityStatus.passed
             application_reason = "The application action is presented in Spanish."
         elif application_language in {"en", "mixed"}:

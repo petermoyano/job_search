@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, HttpUrl
 
@@ -98,7 +98,8 @@ class EligibilityPolicy(BaseModel):
     require_fully_remote: bool = False
     eligible_remote_regions: list[str] = Field(default_factory=list)
     allowed_hybrid_locations: list[str] = Field(default_factory=list)
-    required_description_language: str | None = None
+    required_description_language: Literal["es", "en"] | None = None
+    required_application_language: Literal["es", "en"] | None = None
     require_spanish_application: bool = False
     reject_advanced_english: bool = False
     rejected_seniority_terms: list[str] = Field(default_factory=list)

@@ -117,6 +117,8 @@ def _normalize_profile(
         if title.strip()
     ]
     if not target_roles:
+        target_roles = profile.target_roles
+    if not target_roles:
         raise ValueError("Debe quedar al menos un puesto objetivo.")
     excluded_domains = list(
         dict.fromkeys(
@@ -135,7 +137,7 @@ def _normalize_profile(
             and domain.strip().casefold().removeprefix("www.") not in excluded_domains
         )
     )
-    queries = build_role_tier_queries(profile.role_tiers)
+    queries = build_role_tier_queries(profile.role_tiers) if profile.role_tiers else profile.queries
     return profile.model_copy(
         update={
             "id": fallback.id,
