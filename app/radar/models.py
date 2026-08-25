@@ -6,6 +6,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, HttpUrl
 
+from app.documents.resume_schemas import ResumeProfileDraftV1
+
 
 class DiscoverySourceKind(StrEnum):
     sample = "sample"
@@ -116,6 +118,9 @@ class SearchProfile(BaseModel):
     owner_id: str | None = None
     owner_name: str | None = None
     candidate_summary: str | None = None
+    professional_profile: ResumeProfileDraftV1 = Field(
+        default_factory=ResumeProfileDraftV1
+    )
     target_roles: list[str] = Field(default_factory=list)
     role_tiers: list[RoleTier] = Field(default_factory=list)
     location_policy: str

@@ -3,6 +3,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.documents.resume_schemas import ResumeProfileDraftV1
 from app.models import RadarProfileConfig
 from app.radar.models import (
     SearchProfile,
@@ -91,6 +92,57 @@ def update_profile_document(
     db.flush()
     return SearchProfileDocument(
         profile=normalized,
+        revision=next_revision,
+        persisted=True,
+    )
+
+
+def update_professional_profile_document(
+    db: Session,
+    profile_id: str,
+    *,
+    professional_profile: ResumeProfileDraftV1,
+    candidate_summary: str | None,
+    expected_revision: int,
+) -> SearchProfileDocument:
+    """Persist resume-derived data without replacing Radar settings."""
+    fallback = get_static_profile(profile_id)
+    stored = db.scalar(
+        select(RadarProfileConfig)
+        .where(RadarProfileConfig.profile_id == profile_id)
+        .with_for_update()
+    )
+    current_revision = stored.revision if stored is not None else 0
+    if expected_revision != current_revision:
+        raise ProfileRevisionConflictError(
+            "The profile changed. Reload it before applying the resume."
+        )
+    current = (
+        SearchProfile.model_validate(_upgrade_legacy_sources(stored.profile_json))
+        if stored is not None
+        else fallback
+    )
+    next_revision = current_revision + 1
+    updates: dict[str, object] = {
+        "professional_profile": professional_profile,
+        "version": f"config-r{next_revision}",
+    }
+    if candidate_summary is not None:
+        updates["candidate_summary"] = candidate_summary
+    updated = current.model_copy(update=updates)
+    if stored is None:
+        stored = RadarProfileConfig(
+            profile_id=profile_id,
+            revision=next_revision,
+            profile_json=updated.model_dump(mode="json"),
+        )
+        db.add(stored)
+    else:
+        stored.revision = next_revision
+        stored.profile_json = updated.model_dump(mode="json")
+    db.flush()
+    return SearchProfileDocument(
+        profile=updated,
         revision=next_revision,
         persisted=True,
     )

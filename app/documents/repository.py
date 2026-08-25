@@ -4,7 +4,7 @@ from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.documents.auth import AuthContext
 from app.documents.models import (
@@ -133,6 +133,50 @@ class DocumentRepository:
             )
         )
         return self.session.scalars(statement).one_or_none()
+
+    def get_draft_by_id_scoped(
+        self,
+        *,
+        draft_id: UUID,
+        auth_context: AuthContext,
+        for_update: bool = False,
+    ) -> ResumeProfileDraft | None:
+        statement = (
+            select(ResumeProfileDraft)
+            .join(Document, Document.id == ResumeProfileDraft.document_id)
+            .where(
+                ResumeProfileDraft.id == draft_id,
+                ResumeProfileDraft.source_app == auth_context.source_app,
+                ResumeProfileDraft.tenant_id.in_(auth_context.tenant_ids),
+                Document.source_app == auth_context.source_app,
+                Document.tenant_id.in_(auth_context.tenant_ids),
+            )
+            .options(joinedload(ResumeProfileDraft.document))
+        )
+        if for_update:
+            statement = statement.with_for_update()
+        return self.session.scalars(statement).one_or_none()
+
+    def list_recent_profile_documents(
+        self,
+        *,
+        profile_id: str,
+        auth_context: AuthContext,
+        limit: int = 20,
+    ) -> list[Document]:
+        statement = (
+            select(Document)
+            .where(
+                Document.source_app == auth_context.source_app,
+                Document.tenant_id.in_(auth_context.tenant_ids),
+                Document.processing_policy == "resume",
+                Document.context["profile_id"].as_string() == profile_id,
+            )
+            .options(selectinload(Document.resume_profile_draft))
+            .order_by(Document.created_at.desc())
+            .limit(limit)
+        )
+        return list(self.session.scalars(statement).all())
 
     def commit(self) -> None:
         self.session.commit()

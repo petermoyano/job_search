@@ -108,6 +108,28 @@ Secret values can be read by authorized operators from the two secret ARNs in
 the stack outputs; values are never emitted by CloudFormation or committed to
 Git.
 
+## Resume profile apply P1C
+
+The private `job-search` credential also protects:
+
+- `GET /profiles/{profile_id}/resume-documents`, which restores recent
+  uploads for one authorized profile;
+- `POST /resume-profile-drafts/{draft_id}/apply`, which applies only the
+  explicitly selected sections of a completed draft.
+
+Resume data is stored under `professional_profile` in the existing
+`radar_profile_configs.profile_json`; no parallel profile identity is
+created. Only a selected professional summary is also synchronized to
+`candidate_summary`. Role tiers, sources, source priority, blocked domains,
+queries, offer/application language, location policy, salary, eligibility, and
+Radar execution settings are preserved verbatim. The profile revision is
+checked optimistically, and `applied_at` is updated in the same transaction.
+
+Skills merge case-insensitively; languages merge by language; certifications
+merge by name and issuer; selected experience and education replace their own
+professional sections after deduplication. Applying the same draft again is
+data-idempotent.
+
 
 ## Document Preprocessing P1A
 

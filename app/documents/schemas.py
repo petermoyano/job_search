@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from datetime import datetime
+from enum import StrEnum
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.documents.resume_schemas import ResumeProfileDraftV1
 from app.documents.models import DocumentStatus
+from app.radar.models import SearchProfileDocument
 
 
 SCOPE_PATTERN = r"^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
@@ -100,3 +102,36 @@ class ResumeProfileDraftRead(BaseModel):
     created_at: datetime
     updated_at: datetime
     applied_at: datetime | None
+
+
+class ResumeApplySection(StrEnum):
+    full_name = "full_name"
+    headline = "headline"
+    professional_summary = "professional_summary"
+    location = "location"
+    skills = "skills"
+    experience = "experience"
+    education = "education"
+    languages = "languages"
+    certifications = "certifications"
+
+
+class ApplyResumeDraftRequest(BaseModel):
+    profile_id: str = Field(
+        min_length=1,
+        max_length=255,
+        pattern=PROFILE_PATTERN,
+    )
+    sections: list[ResumeApplySection] = Field(min_length=1)
+    expected_revision: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def validate_unique_sections(self) -> "ApplyResumeDraftRequest":
+        if len(set(self.sections)) != len(self.sections):
+            raise ValueError("sections must not contain duplicates")
+        return self
+
+
+class ApplyResumeDraftResponse(SearchProfileDocument):
+    applied_draft_id: UUID
+    applied_at: datetime
