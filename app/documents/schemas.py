@@ -8,6 +8,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.documents.resume_schemas import ResumeProfileDraftV1
 from app.documents.models import DocumentStatus
+from app.knowledge.contracts import (
+    CRANE_INTELLIGENCE_SOURCE_APP,
+    KNOWLEDGE_BASE_PROCESSING_POLICY,
+    KnowledgeDocumentContext,
+)
 from app.radar.models import SearchProfileDocument
 
 
@@ -25,6 +30,8 @@ class DocumentContext(BaseModel):
         max_length=255,
         pattern=PROFILE_PATTERN,
     )
+
+    knowledge: KnowledgeDocumentContext | None = None
 
 
 class UploadUrlRequest(BaseModel):
@@ -52,7 +59,34 @@ class UploadUrlRequest(BaseModel):
     def validate_pdf_mime_type(cls, value: str) -> str:
         if value.strip().casefold() != "application/pdf":
             raise ValueError("mime_type must be application/pdf")
+
         return "application/pdf"
+
+    @model_validator(mode="after")
+    def validate_knowledge_base_context(self) -> "UploadUrlRequest":
+        has_knowledge_context = (
+            self.context is not None and self.context.knowledge is not None
+        )
+        if self.processing_policy == KNOWLEDGE_BASE_PROCESSING_POLICY:
+            if self.source_app != CRANE_INTELLIGENCE_SOURCE_APP:
+                raise ValueError(
+                    "knowledge-base policy is only available to crane-intelligence"
+                )
+            if self.project_id is None:
+                raise ValueError("knowledge-base policy requires project_id")
+            if not has_knowledge_context:
+                raise ValueError(
+                    "knowledge-base policy requires context.knowledge metadata"
+                )
+            if self.context is not None and self.context.profile_id is not None:
+                raise ValueError(
+                    "knowledge-base policy does not allow profile_id context"
+                )
+        elif has_knowledge_context:
+            raise ValueError(
+                "knowledge context is only valid for the knowledge-base policy"
+            )
+        return self
 
 
 class UploadUrlResponse(BaseModel):
@@ -79,6 +113,8 @@ class DocumentRead(BaseModel):
     status: DocumentStatus
     classification: str | None
     relevance_score: float | None
+
+
     decision: str | None
     result_type: str | None
     result_id: UUID | None
