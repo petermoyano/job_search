@@ -174,3 +174,23 @@ Both runtime Lambdas use Neon's pooled URL from SSM. Alembic continues to use a
 direct Neon URL for schema operations. Pytest forces SQLite in memory before
 importing application sessions so a developer's local `.env` can never make
 the test suite mutate Neon.
+
+## Crane Intelligence Knowledge Base P1B
+
+CloudFormation declares a self-managed Amazon Bedrock Knowledge Base for
+`crane-intelligence` documents under
+`documents/<creactis-tenant>/crane-intelligence/`. It uses the existing
+private document bucket, a retained S3 Vectors bucket and 1,024-dimension
+float32/cosine index, and `cohere.embed-multilingual-v3` for Spanish and
+English semantic search.
+
+The Bedrock role can read only that tenant/source prefix, invoke only the
+configured embedding model, and operate only the declared vector index. Neither
+the document bucket nor the vector bucket is public. The resources are retained
+if the stack is removed to prevent accidental loss of indexed content.
+
+Deploying this template creates the knowledge base and source configuration but
+does not start an ingestion job. The application worker will later write
+per-document Bedrock metadata sidecars and start ingestion explicitly; retrieval
+will later use Bedrock `Retrieve` from the server-side API. Keep the model and
+the 1,024 vector dimensions aligned if either is changed.
