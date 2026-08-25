@@ -11,6 +11,11 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import Settings
 from app.documents.models import Document, DocumentStatus, now_utc
+from app.documents.policies.base import (
+    DocumentProcessingPolicy,
+    PolicyTransientError,
+)
+from app.documents.policies.resume import build_resume_processing_policy
 from app.documents.repository import DocumentRepository
 from app.documents.storage import (
     DocumentStorage,
@@ -24,6 +29,10 @@ LOGGER = logging.getLogger(__name__)
 
 class ProcessingOutcome(StrEnum):
     PREPROCESSED = "PREPROCESSED"
+    COMPLETED = "COMPLETED"
+    REJECTED = "REJECTED"
+    NEEDS_REVIEW = "NEEDS_REVIEW"
+    FAILED = "FAILED"
     SKIPPED = "SKIPPED"
     NOT_FOUND = "NOT_FOUND"
 
@@ -61,10 +70,12 @@ class DocumentProcessingService:
         repository: DocumentRepository,
         storage: DocumentStorage,
         settings: Settings,
+        resume_policy: DocumentProcessingPolicy | None = None,
     ) -> None:
         self.repository = repository
         self.storage = storage
         self.settings = settings
+        self.resume_policy = resume_policy
 
     def process(self, *, document_id: UUID) -> ProcessingResult:
         started_at = now_utc()
@@ -115,8 +126,16 @@ class DocumentProcessingService:
             document.tenant_id,
             document.source_app,
             previous_status,
-            DocumentStatus.PROCESSING,
+            document.status,
         )
+
+        resume_enabled = self._is_resume_policy(document)
+        if document.status != DocumentStatus.PROCESSING:
+            return self._run_resume_policy(
+                document_id=document.id,
+                attempt_started_at=attempt_started_at,
+                document_bytes=None,
+            )
 
         try:
             content = self.storage.read_object(
@@ -136,6 +155,7 @@ class DocumentProcessingService:
                 document_id=document.id,
                 attempt_started_at=attempt_started_at,
                 digest=digest,
+                keep_lease=resume_enabled,
             )
         except ObjectNotFoundError:
             return self._handle_permanent(
@@ -178,10 +198,58 @@ class DocumentProcessingService:
             DocumentStatus.PROCESSING,
             DocumentStatus.PREPROCESSED,
         )
+        if resume_enabled:
+            return self._run_resume_policy(
+                document_id=document.id,
+                attempt_started_at=attempt_started_at,
+                document_bytes=content.body,
+            )
         return ProcessingResult(
             document_id=document.id,
             outcome=ProcessingOutcome.PREPROCESSED,
             status=DocumentStatus.PREPROCESSED,
+        )
+
+    def _run_resume_policy(
+        self,
+        *,
+        document_id: UUID,
+        attempt_started_at: datetime | None,
+        document_bytes: bytes | None,
+    ) -> ProcessingResult:
+        policy = self.resume_policy or build_resume_processing_policy(
+            repository=self.repository,
+            storage=self.storage,
+            settings=self.settings,
+        )
+        try:
+            result_status = policy.process(
+                document_id=document_id,
+                attempt_started_at=attempt_started_at,
+                document_bytes=document_bytes,
+            )
+        except PolicyTransientError as exc:
+            raise TransientProcessingError(
+                "Resume policy is temporarily unavailable"
+            ) from exc
+        outcomes = {
+            DocumentStatus.COMPLETED: ProcessingOutcome.COMPLETED,
+            DocumentStatus.REJECTED: ProcessingOutcome.REJECTED,
+            DocumentStatus.NEEDS_REVIEW: ProcessingOutcome.NEEDS_REVIEW,
+            DocumentStatus.FAILED: ProcessingOutcome.FAILED,
+            DocumentStatus.PREPROCESSED: ProcessingOutcome.PREPROCESSED,
+        }
+        return ProcessingResult(
+            document_id=document_id,
+            outcome=outcomes.get(result_status, ProcessingOutcome.SKIPPED),
+            status=result_status,
+        )
+
+    @staticmethod
+    def _is_resume_policy(document: Document) -> bool:
+        return (
+            document.source_app == "job-search"
+            and document.processing_policy == "resume"
         )
 
     def _validate_content(self, *, document: Document, content) -> None:
@@ -228,6 +296,7 @@ class DocumentProcessingService:
         document_id: UUID,
         attempt_started_at: datetime | None,
         digest: str,
+        keep_lease: bool,
     ) -> None:
         current = self.repository.get_for_processing(
             document_id=document_id,
@@ -239,7 +308,8 @@ class DocumentProcessingService:
         current.sha256 = digest
         current.status = DocumentStatus.PREPROCESSED
         current.preprocessed_at = now_utc()
-        current.processing_started_at = None
+        if not keep_lease:
+            current.processing_started_at = None
         current.error_code = None
         current.error_message = None
         self.repository.commit()

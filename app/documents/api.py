@@ -15,12 +15,19 @@ from app.documents.queue import (
     get_document_processing_queue,
 )
 from app.documents.repository import DocumentRepository
-from app.documents.schemas import DocumentRead, UploadUrlRequest, UploadUrlResponse
+from app.documents.schemas import (
+    DocumentRead,
+    ResumeProfileDraftRead,
+    UploadUrlRequest,
+    UploadUrlResponse,
+)
 from app.documents.service import (
     DocumentAccessDeniedError,
     DocumentNotFoundError,
+    DocumentResultNotFoundError,
     DocumentService,
     FileTooLargeError,
+    InvalidDocumentContextError,
     InvalidUploadStateError,
     UploadObjectNotFoundError,
     UploadValidationError,
@@ -64,6 +71,8 @@ def create_upload_url(
         result = service.create_upload(payload=payload, auth_context=auth_context)
     except DocumentAccessDeniedError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except InvalidDocumentContextError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except FileTooLargeError as exc:
         raise HTTPException(
             status_code=status.HTTP_413_CONTENT_TOO_LARGE,
@@ -124,4 +133,24 @@ def read_document(
             service.get_document(document_id=document_id, auth_context=auth_context)
         )
     except DocumentNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get(
+    "/{document_id}/result",
+    response_model=ResumeProfileDraftRead,
+)
+def read_document_result(
+    document_id: UUID,
+    auth_context: Annotated[AuthContext, Depends(get_auth_context)],
+    service: Annotated[DocumentService, Depends(get_document_service)],
+) -> ResumeProfileDraftRead:
+    try:
+        return ResumeProfileDraftRead.model_validate(
+            service.get_result(
+                document_id=document_id,
+                auth_context=auth_context,
+            )
+        )
+    except (DocumentNotFoundError, DocumentResultNotFoundError) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

@@ -4,10 +4,14 @@ from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.documents.auth import AuthContext
-from app.documents.models import Document, DocumentStatus
+from app.documents.models import (
+    Document,
+    DocumentStatus,
+    ResumeProfileDraft,
+)
 
 
 class DocumentRepository:
@@ -31,6 +35,7 @@ class DocumentRepository:
             Document.source_app == auth_context.source_app,
             Document.tenant_id.in_(auth_context.tenant_ids),
         )
+        statement = statement.options(selectinload(Document.resume_profile_draft))
         if for_update:
             statement = statement.with_for_update()
         return self.session.scalars(statement).one_or_none()
@@ -62,20 +67,72 @@ class DocumentRepository:
             processing_started_at = processing_started_at.replace(
                 tzinfo=started_at.tzinfo
             )
-        is_stale = (
-            document.status == DocumentStatus.PROCESSING
-            and processing_started_at is not None
-            and processing_started_at <= stale_before
+        lease_available = (
+            processing_started_at is None or processing_started_at <= stale_before
         )
-        if document.status != DocumentStatus.UPLOADED and not is_stale:
+        resume_policy = (
+            document.source_app == "job-search"
+            and document.processing_policy == "resume"
+        )
+        claimed = False
+        if document.status == DocumentStatus.UPLOADED:
+            document.status = DocumentStatus.PROCESSING
+            claimed = True
+        elif document.status == DocumentStatus.PROCESSING and lease_available:
+            claimed = True
+        elif resume_policy and lease_available:
+            if document.status == DocumentStatus.CLASSIFYING:
+                document.status = DocumentStatus.PREPROCESSED
+                claimed = True
+            elif document.status in {
+                DocumentStatus.PREPROCESSED,
+                DocumentStatus.ACCEPTED,
+                DocumentStatus.DATA_EXTRACTED,
+            }:
+                claimed = True
+        if not claimed:
             return document, False, previous_status
-        document.status = DocumentStatus.PROCESSING
         document.processing_started_at = started_at
         document.error_code = None
         document.error_message = None
         self.session.commit()
         self.session.refresh(document)
         return document, True, previous_status
+
+    def add_draft(self, draft: ResumeProfileDraft) -> ResumeProfileDraft:
+        self.session.add(draft)
+        self.session.flush()
+        return draft
+
+    def get_draft_by_document(
+        self,
+        *,
+        document_id: UUID,
+        for_update: bool = False,
+    ) -> ResumeProfileDraft | None:
+        statement = select(ResumeProfileDraft).where(
+            ResumeProfileDraft.document_id == document_id
+        )
+        if for_update:
+            statement = statement.with_for_update()
+        return self.session.scalars(statement).one_or_none()
+
+    def get_draft_scoped(
+        self,
+        *,
+        document_id: UUID,
+        auth_context: AuthContext,
+    ) -> ResumeProfileDraft | None:
+        statement = (
+            select(ResumeProfileDraft)
+            .join(Document, Document.id == ResumeProfileDraft.document_id)
+            .where(
+                ResumeProfileDraft.document_id == document_id,
+                Document.source_app == auth_context.source_app,
+                Document.tenant_id.in_(auth_context.tenant_ids),
+            )
+        )
+        return self.session.scalars(statement).one_or_none()
 
     def commit(self) -> None:
         self.session.commit()

@@ -6,7 +6,12 @@ from uuid import UUID, uuid4
 
 from app.core.config import Settings
 from app.documents.auth import AuthContext
-from app.documents.models import Document, DocumentStatus, now_utc
+from app.documents.models import (
+    Document,
+    DocumentStatus,
+    ResumeProfileDraft,
+    now_utc,
+)
 from app.documents.queue import (
     DocumentProcessingQueue,
     QueueUnavailableError,
@@ -29,6 +34,14 @@ class DocumentAccessDeniedError(Exception):
 
 
 class DocumentNotFoundError(Exception):
+    pass
+
+
+class DocumentResultNotFoundError(Exception):
+    pass
+
+
+class InvalidDocumentContextError(Exception):
     pass
 
 
@@ -91,6 +104,17 @@ class DocumentService:
             tenant_id=payload.tenant_id,
             source_app=payload.source_app,
         )
+        resume_policy = (
+            payload.source_app == "job-search" and payload.processing_policy == "resume"
+        )
+        if payload.processing_policy == "resume" and not resume_policy:
+            raise InvalidDocumentContextError(
+                "The resume policy is only available to job-search"
+            )
+        if payload.context and payload.context.profile_id and not resume_policy:
+            raise InvalidDocumentContextError(
+                "profile_id context is only valid for the job-search resume policy"
+            )
         if payload.file_size_bytes > self.settings.documents_max_file_size_bytes:
             raise FileTooLargeError(
                 f"PDF exceeds the {self.settings.documents_max_file_size_bytes} byte limit"
@@ -103,6 +127,11 @@ class DocumentService:
             project_id=payload.project_id,
             source_app=payload.source_app,
             processing_policy=payload.processing_policy,
+            context=(
+                payload.context.model_dump(exclude_none=True)
+                if payload.context is not None
+                else None
+            ),
             original_filename=payload.filename,
             mime_type=payload.mime_type,
             file_size_bytes=payload.file_size_bytes,
@@ -288,6 +317,25 @@ class DocumentService:
             auth_context=auth_context,
             for_update=False,
         )
+
+    def get_result(
+        self,
+        *,
+        document_id: UUID,
+        auth_context: AuthContext,
+    ) -> ResumeProfileDraft:
+        self._get_scoped(
+            document_id=document_id,
+            auth_context=auth_context,
+            for_update=False,
+        )
+        draft = self.repository.get_draft_scoped(
+            document_id=document_id,
+            auth_context=auth_context,
+        )
+        if draft is None:
+            raise DocumentResultNotFoundError("Document result not found")
+        return draft
 
     def _get_scoped(
         self,

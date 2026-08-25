@@ -1,5 +1,8 @@
 from app.db.session import Base
-from app.documents.models import Document  # noqa: F401
+from app.documents.models import (  # noqa: F401
+    Document,
+    ResumeProfileDraft,
+)
 from app.models import (  # noqa: F401
     AppConfig,
     CandidateCV,

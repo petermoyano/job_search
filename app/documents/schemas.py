@@ -5,11 +5,24 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.documents.resume_schemas import ResumeProfileDraftV1
 from app.documents.models import DocumentStatus
 
 
 SCOPE_PATTERN = r"^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
 POLICY_PATTERN = r"^[a-z0-9](?:[a-z0-9._-]{0,98}[a-z0-9])?$"
+PROFILE_PATTERN = r"^[a-zA-Z0-9](?:[a-zA-Z0-9._-]{0,253}[a-zA-Z0-9])?$"
+
+
+class DocumentContext(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    profile_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=255,
+        pattern=PROFILE_PATTERN,
+    )
 
 
 class UploadUrlRequest(BaseModel):
@@ -19,6 +32,7 @@ class UploadUrlRequest(BaseModel):
     )
     source_app: str = Field(min_length=1, max_length=64, pattern=SCOPE_PATTERN)
     processing_policy: str = Field(min_length=1, max_length=100, pattern=POLICY_PATTERN)
+    context: DocumentContext | None = None
     filename: str = Field(min_length=5, max_length=255)
     mime_type: str
     file_size_bytes: int = Field(gt=0)
@@ -55,6 +69,7 @@ class DocumentRead(BaseModel):
     project_id: str | None
     source_app: str
     processing_policy: str
+    context: DocumentContext | None
     filename: str
     mime_type: str
     file_size_bytes: int
@@ -63,8 +78,25 @@ class DocumentRead(BaseModel):
     classification: str | None
     relevance_score: float | None
     decision: str | None
+    result_type: str | None
+    result_id: UUID | None
     error_code: str | None
     error_message: str | None
     created_at: datetime
     updated_at: datetime
     uploaded_at: datetime | None
+
+
+class ResumeProfileDraftRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    document_id: UUID
+    profile_id: str | None
+    schema_version: str
+    payload: ResumeProfileDraftV1
+    model_id: str
+    extracted_at: datetime
+    created_at: datetime
+    updated_at: datetime
+    applied_at: datetime | None

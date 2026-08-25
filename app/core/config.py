@@ -39,6 +39,15 @@ class Settings(BaseSettings):
     documents_upload_url_expires_seconds: int = 900
     document_processing_queue_url: str = ""
     document_processing_lease_seconds: int = 300
+    resume_processing_model_id: str = "mistral.ministral-3-14b-instruct"
+    resume_processing_bedrock_region: str = "sa-east-1"
+    resume_min_extracted_characters: int = Field(default=100, gt=0)
+    resume_max_model_input_characters: int = Field(default=60_000, gt=0)
+    resume_accept_confidence: float = Field(default=0.80, ge=0.0, le=1.0)
+    resume_reject_low_confidence: float = Field(default=0.40, ge=0.0, le=1.0)
+    resume_not_resume_reject_confidence: float = Field(default=0.80, ge=0.0, le=1.0)
+    resume_bedrock_connect_timeout_seconds: int = Field(default=5, gt=0)
+    resume_bedrock_read_timeout_seconds: int = Field(default=45, gt=0)
     document_client_secret_ids: str = ""
     document_client_keys_json: str | None = Field(default=None, repr=False)
     document_auth_cache_ttl_seconds: int = 300
@@ -59,6 +68,11 @@ class Settings(BaseSettings):
         if self.database_url_ssm_parameter:
             database_url = _get_ssm_parameter(self.database_url_ssm_parameter)
         self.database_url = _normalize_database_url(database_url)
+        if (
+            self.resume_max_model_input_characters
+            < self.resume_min_extracted_characters
+        ):
+            raise ValueError("resume model input maximum must be at least the minimum")
         return self
 
 

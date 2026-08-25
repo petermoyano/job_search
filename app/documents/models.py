@@ -9,13 +9,17 @@ from sqlalchemy import (
     DateTime,
     Enum,
     Float,
+    ForeignKey,
     Index,
+    JSON,
     String,
     Text,
+    UniqueConstraint,
     Uuid,
     func,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
 
@@ -58,6 +62,10 @@ class Document(Base):
     project_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     source_app: Mapped[str] = mapped_column(String(64), nullable=False)
     processing_policy: Mapped[str] = mapped_column(String(100), nullable=False)
+    context: Mapped[dict | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=True,
+    )
 
     original_filename: Mapped[str] = mapped_column(String(255), nullable=False)
     mime_type: Mapped[str] = mapped_column(String(100), nullable=False)
@@ -113,6 +121,77 @@ class Document(Base):
         DateTime(timezone=True), nullable=True
     )
 
+    resume_profile_draft: Mapped[ResumeProfileDraft | None] = relationship(
+        back_populates="document",
+        uselist=False,
+    )
+
     @property
     def filename(self) -> str:
         return self.original_filename
+
+    @property
+    def result_type(self) -> str | None:
+        if self.resume_profile_draft is not None:
+            return "resume_profile_draft"
+        return None
+
+    @property
+    def result_id(self) -> UUID | None:
+        if self.resume_profile_draft is not None:
+            return self.resume_profile_draft.id
+        return None
+
+
+class ResumeProfileDraft(Base):
+    __tablename__ = "resume_profile_drafts"
+    __table_args__ = (
+        UniqueConstraint(
+            "document_id",
+            name="uq_resume_profile_drafts_document_id",
+        ),
+        Index(
+            "ix_resume_profile_drafts_tenant_source",
+            "tenant_id",
+            "source_app",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    document_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("documents.id"),
+        nullable=False,
+    )
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_app: Mapped[str] = mapped_column(String(64), nullable=False)
+    profile_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    schema_version: Mapped[str] = mapped_column(String(50), nullable=False)
+    payload: Mapped[dict] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+    )
+    model_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    extracted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=now_utc,
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=now_utc,
+        server_default=func.now(),
+        onupdate=now_utc,
+        nullable=False,
+    )
+    applied_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    document: Mapped[Document] = relationship(back_populates="resume_profile_draft")

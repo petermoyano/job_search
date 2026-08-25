@@ -12,7 +12,12 @@ from app.core.config import get_settings
 from app.db.base import Base
 from app.db.session import SessionLocal, engine
 from app.documents.auth import AuthContext, credential_store
-from app.documents.models import Document, DocumentStatus
+from app.documents.models import (
+    Document,
+    DocumentStatus,
+    ResumeProfileDraft,
+    now_utc,
+)
 from app.documents.queue import (
     QueueUnavailableError,
     SqsDocumentProcessingQueue,
@@ -349,6 +354,7 @@ def test_get_unknown_document_returns_not_found() -> None:
         )
     assert response.status_code == 404
 
+
 def test_sqs_queue_publishes_minimal_versioned_message(monkeypatch) -> None:
     sent: dict[str, str] = {}
 
@@ -447,3 +453,100 @@ def test_queue_failure_rolls_back_verified_completion(
     assert loaded.status_code == 200
     assert loaded.json()["status"] == "PENDING_UPLOAD"
     assert document_test_environment.processing_queue.document_ids == []
+
+
+def test_resume_upload_accepts_valid_profile_context() -> None:
+    with TestClient(app) as client:
+        response = client.post(
+            "/documents/upload-url",
+            headers=JOB_HEADERS,
+            json=valid_payload(
+                processing_policy="resume",
+                context={"profile_id": "peter"},
+            ),
+        )
+
+    assert response.status_code == 201
+    with SessionLocal() as session:
+        document = session.get(Document, UUID(response.json()["document_id"]))
+        assert document is not None
+        assert document.context == {"profile_id": "peter"}
+
+
+def test_resume_policy_is_rejected_for_other_source_app() -> None:
+    with TestClient(app) as client:
+        response = client.post(
+            "/documents/upload-url",
+            headers=CRANE_HEADERS,
+            json=valid_payload(
+                tenant_id="creactis",
+                source_app="crane-intelligence",
+                processing_policy="resume",
+            ),
+        )
+
+    assert response.status_code == 422
+
+
+def test_document_result_is_tenant_scoped_and_reported_on_document() -> None:
+    with TestClient(app) as client:
+        created = client.post(
+            "/documents/upload-url",
+            headers=JOB_HEADERS,
+            json=valid_payload(
+                processing_policy="resume",
+                context={"profile_id": "peter"},
+            ),
+        )
+        document_id = UUID(created.json()["document_id"])
+        with SessionLocal() as session:
+            draft = ResumeProfileDraft(
+                document_id=document_id,
+                tenant_id="job-search",
+                source_app="job-search",
+                profile_id="peter",
+                schema_version="resume_profile_draft_v1",
+                payload={},
+                model_id="mistral.ministral-3-14b-instruct",
+                extracted_at=now_utc(),
+            )
+            session.add(draft)
+            session.commit()
+            result_id = str(draft.id)
+
+        document_response = client.get(
+            f"/documents/{document_id}",
+            headers=JOB_HEADERS,
+        )
+        result_response = client.get(
+            f"/documents/{document_id}/result",
+            headers=JOB_HEADERS,
+        )
+        denied_response = client.get(
+            f"/documents/{document_id}/result",
+            headers=CRANE_HEADERS,
+        )
+
+    assert document_response.status_code == 200
+    assert document_response.json()["result_type"] == "resume_profile_draft"
+    assert document_response.json()["result_id"] == result_id
+    assert result_response.status_code == 200
+    assert result_response.json()["id"] == result_id
+    assert result_response.json()["profile_id"] == "peter"
+    assert result_response.json()["payload"]["skills"] == []
+    assert denied_response.status_code == 404
+
+
+def test_document_result_returns_not_found_before_extraction() -> None:
+    with TestClient(app) as client:
+        created = client.post(
+            "/documents/upload-url",
+            headers=JOB_HEADERS,
+            json=valid_payload(processing_policy="resume"),
+        )
+        response = client.get(
+            f"/documents/{created.json()['document_id']}/result",
+            headers=JOB_HEADERS,
+        )
+
+    assert response.status_code == 404

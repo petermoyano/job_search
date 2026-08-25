@@ -40,9 +40,30 @@ Parameters:
     MinValue: 1
   DocumentProcessingBatchSize:
     Type: Number
-    Default: 5
+    Default: 1
     MinValue: 1
     MaxValue: 10
+  ResumeProcessingModelId:
+    Type: String
+    Default: mistral.ministral-3-14b-instruct
+    Description: In-region Bedrock model used for resume classification and extraction.
+  ResumeMinExtractedCharacters:
+    Type: Number
+    Default: 100
+    MinValue: 1
+  ResumeMaxModelInputCharacters:
+    Type: Number
+    Default: 60000
+    MinValue: 100
+  ResumeAcceptConfidence:
+    Type: Number
+    Default: 0.80
+  ResumeRejectLowConfidence:
+    Type: Number
+    Default: 0.40
+  ResumeNotResumeRejectConfidence:
+    Type: Number
+    Default: 0.80
   JobSearchTenantId:
     Type: String
     Default: job-search
@@ -310,6 +331,14 @@ Resources:
                 Effect: Allow
                 Action: s3:GetObject
                 Resource: !Sub '${DocumentBucket.Arn}/documents/*'
+        - PolicyName: InvokeResumeProcessingModel
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: bedrock:InvokeModel
+                Resource: !Sub >-
+                  arn:${AWS::Partition}:bedrock:${AWS::Region}::foundation-model/${ResumeProcessingModelId}
       Tags:
         - Key: Application
           Value: job-search
@@ -321,7 +350,7 @@ Resources:
     DependsOn: DocumentProcessingLogGroup
     Properties:
       FunctionName: job-search-document-processor
-      Description: Asynchronous deterministic preprocessing for uploaded documents.
+      Description: Asynchronous preprocessing and policy-based document processing.
       PackageType: Image
       Code:
         ImageUri: !Ref WorkerImageUri
@@ -329,7 +358,7 @@ Resources:
       Architectures:
         - x86_64
       MemorySize: 512
-      Timeout: 60
+      Timeout: 180
       EphemeralStorage:
         Size: 512
       Environment:
@@ -339,6 +368,13 @@ Resources:
           INITIALIZE_DATABASE: "false"
           DOCUMENTS_MAX_FILE_SIZE_BYTES: !Ref DocumentsMaxFileSizeBytes
           DOCUMENT_PROCESSING_LEASE_SECONDS: "300"
+          RESUME_PROCESSING_MODEL_ID: !Ref ResumeProcessingModelId
+          RESUME_PROCESSING_BEDROCK_REGION: !Ref AWS::Region
+          RESUME_MIN_EXTRACTED_CHARACTERS: !Ref ResumeMinExtractedCharacters
+          RESUME_MAX_MODEL_INPUT_CHARACTERS: !Ref ResumeMaxModelInputCharacters
+          RESUME_ACCEPT_CONFIDENCE: !Ref ResumeAcceptConfidence
+          RESUME_REJECT_LOW_CONFIDENCE: !Ref ResumeRejectLowConfidence
+          RESUME_NOT_RESUME_REJECT_CONFIDENCE: !Ref ResumeNotResumeRejectConfidence
       Tags:
         - Key: Application
           Value: job-search
@@ -473,3 +509,6 @@ Outputs:
     Value: !GetAtt DocumentProcessingFunction.Arn
   DocumentProcessingExecutionRoleArn:
     Value: !GetAtt DocumentProcessingExecutionRole.Arn
+  ResumeProcessingModelId:
+    Description: Bedrock model used by the resume processing policy.
+    Value: !Ref ResumeProcessingModelId
