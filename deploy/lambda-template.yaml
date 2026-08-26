@@ -282,10 +282,6 @@ Resources:
         Type: VECTOR
         VectorKnowledgeBaseConfiguration:
           EmbeddingModelArn: !Sub arn:${AWS::Partition}:bedrock:${AWS::Region}::foundation-model/${CraneKnowledgeBaseEmbeddingModelId}
-          EmbeddingModelConfiguration:
-            BedrockEmbeddingModelConfiguration:
-              Dimensions: 1024
-              EmbeddingDataType: FLOAT32
       StorageConfiguration:
         Type: S3_VECTORS
         S3VectorsConfiguration:
