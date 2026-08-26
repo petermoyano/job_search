@@ -25,11 +25,13 @@ limit and metadata is filterable without exposing the S3 URI.
 
 ## Retrieval contract
 
-The future authenticated `POST /knowledge/retrieve` accepts a normalized
-question, optional project/asset/component filters, and one to eight results.
-Tenant and source filters are added by the backend from the credential. The
-response exposes document ID, title, excerpt, score, and optional page number;
-it never exposes a private S3 URI.
+The authenticated `POST /knowledge/retrieve` accepts a normalized question,
+optional project/asset/component filters, and one to eight results. It accepts
+only a `crane-intelligence` credential; tenant IDs and source are derived from
+that credential and added to the Bedrock metadata filter on the server. Results
+are then checked again against locally authorized `RAG_INDEXED` documents.
+The response exposes document ID, title, excerpt, score, and optional page
+number; it never exposes a private S3 URI or Bedrock source location.
 
 ## Lifecycle
 

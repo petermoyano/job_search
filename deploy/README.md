@@ -198,6 +198,8 @@ the database URL parameter and start or inspect jobs for this Knowledge Base.
 It promotes a document to `RAG_INDEXED` only when Bedrock reports `COMPLETE`;
 a `FAILED` or `STOPPED` job remains outside retrieval with a safe database
 error. The deployment workflow publishes the existing `<git-sha>-worker`
-image to both native handlers. Retrieval will use Bedrock `Retrieve` from the
-server-side API. Keep the model and the 1,024 vector dimensions aligned if
-either is changed.
+image to both native handlers. The API Lambda has `bedrock:Retrieve` only
+against this Knowledge Base; its authenticated `POST /knowledge/retrieve`
+route derives tenant and source filters from the credential and never returns
+S3 locations. Keep the model and the 1,024 vector dimensions aligned if either
+is changed.

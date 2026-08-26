@@ -70,6 +70,24 @@ class DocumentRepository:
         )
         return list(self.session.scalars(statement).all())
 
+    def list_rag_indexed_by_ids(
+        self,
+        *,
+        document_ids: set[UUID],
+        auth_context: AuthContext,
+    ) -> dict[UUID, Document]:
+        if not document_ids:
+            return {}
+        statement = select(Document).where(
+            Document.id.in_(document_ids),
+            Document.source_app == CRANE_INTELLIGENCE_SOURCE_APP,
+            Document.tenant_id.in_(auth_context.tenant_ids),
+            Document.processing_policy == KNOWLEDGE_BASE_PROCESSING_POLICY,
+            Document.status == DocumentStatus.RAG_INDEXED,
+        )
+        documents = self.session.scalars(statement).all()
+        return {document.id: document for document in documents}
+
     def claim_for_processing(
         self,
         *,

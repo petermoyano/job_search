@@ -12,6 +12,7 @@ from app.core.config import get_settings
 from app.documents.api import router as documents_router
 from app.documents.resume_api import router as resume_profiles_router
 from app.db.base import Base
+from app.knowledge.api import router as knowledge_router
 from app.db.session import engine
 
 
@@ -106,3 +107,4 @@ app.add_middleware(
 app.include_router(router)
 app.include_router(documents_router)
 app.include_router(resume_profiles_router)
+app.include_router(knowledge_router)

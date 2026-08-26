@@ -432,6 +432,13 @@ Resources:
                 Effect: Allow
                 Action: sqs:SendMessage
                 Resource: !GetAtt DocumentProcessingQueue.Arn
+        - PolicyName: RetrieveCraneKnowledge
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: bedrock:Retrieve
+                Resource: !GetAtt CraneKnowledgeBase.KnowledgeBaseArn
       Tags:
         - Key: Application
           Value: job-search
@@ -699,6 +706,9 @@ Resources:
             - - !Ref JobSearchDocumentClientSecret
               - !Ref CraneIntelligenceDocumentClientSecret
           AWS_LWA_PORT: "8000"
+          KNOWLEDGE_BASE_ID: !Ref CraneKnowledgeBase
+          KNOWLEDGE_BASE_DATA_SOURCE_ID: !Ref CraneKnowledgeDataSource
+          KNOWLEDGE_BASE_REGION: !Ref AWS::Region
           AWS_LWA_READINESS_CHECK_PATH: /health
           AWS_LWA_ENABLE_COMPRESSION: "true"
       Tags:
