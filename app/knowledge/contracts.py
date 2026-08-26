@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 KNOWLEDGE_BASE_PROCESSING_POLICY = "knowledge-base"
@@ -97,3 +98,47 @@ class KnowledgeSyncStatus(StrEnum):
     COMPLETE = "COMPLETE"
     PARTIAL = "PARTIAL"
     FAILED = "FAILED"
+
+class KnowledgeGenerateMessage(BaseModel):
+    """A bounded text-only turn accepted from the server-side chat proxy."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    role: Literal["user", "assistant"]
+    text: str = Field(min_length=1, max_length=8_000)
+
+    @field_validator("text")
+    @classmethod
+    def normalize_text(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("text must not be blank")
+        return normalized
+
+
+class KnowledgeGenerateRequest(BaseModel):
+    """Generation request for the Crane Intelligence server-side proxy."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    system_prompt: str = Field(min_length=1, max_length=60_000)
+    messages: list[KnowledgeGenerateMessage] = Field(min_length=1, max_length=24)
+
+    @field_validator("system_prompt")
+    @classmethod
+    def normalize_system_prompt(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("system_prompt must not be blank")
+        return normalized
+
+    @model_validator(mode="after")
+    def limit_total_input(self) -> "KnowledgeGenerateRequest":
+        total = len(self.system_prompt) + sum(len(message.text) for message in self.messages)
+        if total > 60_000:
+            raise ValueError("chat input exceeds the configured maximum")
+        return self
+
+
+class KnowledgeGenerateResponse(BaseModel):
+    text: str = Field(min_length=1, max_length=16_000)

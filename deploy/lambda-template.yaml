@@ -46,6 +46,9 @@ Parameters:
   ResumeProcessingModelId:
     Type: String
     Default: mistral.ministral-3-14b-instruct
+  CraneChatModelId:
+    Type: String
+    Default: mistral.ministral-3-3b-instruct
     Description: In-region Bedrock model used for resume classification and extraction.
   ResumeMinExtractedCharacters:
     Type: Number
@@ -443,6 +446,14 @@ Resources:
               - Effect: Allow
                 Action: bedrock:Retrieve
                 Resource: !GetAtt CraneKnowledgeBase.KnowledgeBaseArn
+        - PolicyName: GenerateCraneChat
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: bedrock:InvokeModel
+                Resource: !Sub >-
+                  arn:${AWS::Partition}:bedrock:${AWS::Region}::foundation-model/${CraneChatModelId}
       Tags:
         - Key: Application
           Value: job-search
@@ -713,6 +724,8 @@ Resources:
           KNOWLEDGE_BASE_ID: !Ref CraneKnowledgeBase
           KNOWLEDGE_BASE_DATA_SOURCE_ID: !GetAtt CraneKnowledgeDataSource.DataSourceId
           KNOWLEDGE_BASE_REGION: !Ref AWS::Region
+          CRANE_CHAT_MODEL_ID: !Ref CraneChatModelId
+          CRANE_CHAT_BEDROCK_REGION: !Ref AWS::Region
           AWS_LWA_READINESS_CHECK_PATH: /health
           AWS_LWA_ENABLE_COMPRESSION: "true"
       Tags:
