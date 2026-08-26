@@ -190,7 +190,9 @@ the document bucket nor the vector bucket is public. The resources are retained
 if the stack is removed to prevent accidental loss of indexed content.
 
 Deploying this template creates the knowledge base and source configuration but
-does not start an ingestion job. The application worker will later write
-per-document Bedrock metadata sidecars and start ingestion explicitly; retrieval
-will later use Bedrock `Retrieve` from the server-side API. Keep the model and
-the 1,024 vector dimensions aligned if either is changed.
+does not itself start an ingestion job. The document worker writes each validated
+Crane PDF sidecar and explicitly requests an idempotent source sync; it can write
+only that source prefix and start only this Knowledge Base. A later reconciler
+will confirm completion before a document becomes `RAG_INDEXED`; retrieval will
+use Bedrock `Retrieve` from the server-side API. Keep the model and the 1,024
+vector dimensions aligned if either is changed.

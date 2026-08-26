@@ -22,6 +22,16 @@ from app.documents.storage import (
     ObjectNotFoundError,
     StorageUnavailableError,
 )
+from app.knowledge.ingestion import (
+    KnowledgeIngestionPermanentError,
+    KnowledgeIngestionRequest,
+    KnowledgeIngestionService,
+    KnowledgeIngestionTransientError,
+)
+from app.knowledge.contracts import (
+    CRANE_INTELLIGENCE_SOURCE_APP,
+    KNOWLEDGE_BASE_PROCESSING_POLICY,
+)
 
 
 LOGGER = logging.getLogger(__name__)
@@ -71,11 +81,13 @@ class DocumentProcessingService:
         storage: DocumentStorage,
         settings: Settings,
         resume_policy: DocumentProcessingPolicy | None = None,
+        knowledge_ingestion_service: KnowledgeIngestionService | None = None,
     ) -> None:
         self.repository = repository
         self.storage = storage
         self.settings = settings
         self.resume_policy = resume_policy
+        self.knowledge_ingestion_service = knowledge_ingestion_service
 
     def process(self, *, document_id: UUID) -> ProcessingResult:
         started_at = now_utc()
@@ -130,6 +142,7 @@ class DocumentProcessingService:
         )
 
         resume_enabled = self._is_resume_policy(document)
+        knowledge_enabled = self._is_knowledge_base_policy(document)
         if document.status != DocumentStatus.PROCESSING:
             return self._run_resume_policy(
                 document_id=document.id,
@@ -137,6 +150,7 @@ class DocumentProcessingService:
                 document_bytes=None,
             )
 
+        knowledge_request: KnowledgeIngestionRequest | None = None
         try:
             content = self.storage.read_object(
                 bucket=document.s3_bucket,
@@ -151,11 +165,17 @@ class DocumentProcessingService:
                 document.tenant_id,
                 document.source_app,
             )
+            if knowledge_enabled:
+                knowledge_request = self._request_knowledge_sync(
+                    document=document,
+                    document_sha256=digest,
+                )
             self._mark_preprocessed(
                 document_id=document.id,
                 attempt_started_at=attempt_started_at,
                 digest=digest,
                 keep_lease=resume_enabled,
+                knowledge_request=knowledge_request,
             )
         except ObjectNotFoundError:
             return self._handle_permanent(
@@ -172,6 +192,24 @@ class DocumentProcessingService:
                 attempt_started_at=attempt_started_at,
                 error=exc,
             )
+        except KnowledgeIngestionPermanentError as exc:
+            return self._handle_permanent(
+                document=document,
+                attempt_started_at=attempt_started_at,
+                error=PermanentDocumentError(
+                    code=exc.code,
+                    message=exc.safe_message,
+                ),
+            )
+        except KnowledgeIngestionTransientError as exc:
+            self._release_for_retry(
+                document=document,
+                attempt_started_at=attempt_started_at,
+                error_code="KNOWLEDGE_INGESTION_UNAVAILABLE",
+            )
+            raise TransientProcessingError(
+                "Knowledge Base ingestion is temporarily unavailable"
+            ) from exc
         except StorageUnavailableError as exc:
             self._release_for_retry(
                 document=document,
@@ -252,6 +290,31 @@ class DocumentProcessingService:
             and document.processing_policy == "resume"
         )
 
+    @staticmethod
+    def _is_knowledge_base_policy(document: Document) -> bool:
+        return (
+            document.source_app == CRANE_INTELLIGENCE_SOURCE_APP
+            and document.processing_policy == KNOWLEDGE_BASE_PROCESSING_POLICY
+        )
+
+    def _request_knowledge_sync(
+        self,
+        *,
+        document: Document,
+        document_sha256: str,
+    ) -> KnowledgeIngestionRequest:
+        service = self.knowledge_ingestion_service
+        if service is None:
+            service = KnowledgeIngestionService(
+                storage=self.storage,
+                settings=self.settings,
+            )
+            self.knowledge_ingestion_service = service
+        return service.request_sync(
+            document=document,
+            document_sha256=document_sha256,
+        )
+
     def _validate_content(self, *, document: Document, content) -> None:
         if content.size_bytes <= 0 or not content.body:
             raise PermanentDocumentError(
@@ -297,6 +360,7 @@ class DocumentProcessingService:
         attempt_started_at: datetime | None,
         digest: str,
         keep_lease: bool,
+        knowledge_request: KnowledgeIngestionRequest | None,
     ) -> None:
         current = self.repository.get_for_processing(
             document_id=document_id,
@@ -308,6 +372,11 @@ class DocumentProcessingService:
         current.sha256 = digest
         current.status = DocumentStatus.PREPROCESSED
         current.preprocessed_at = now_utc()
+        if knowledge_request is not None:
+            current.knowledge_sync_status = knowledge_request.status
+            current.knowledge_ingestion_job_id = knowledge_request.ingestion_job_id
+            current.knowledge_sync_requested_at = knowledge_request.requested_at
+            current.knowledge_sync_completed_at = None
         if not keep_lease:
             current.processing_started_at = None
         current.error_code = None

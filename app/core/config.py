@@ -48,6 +48,11 @@ class Settings(BaseSettings):
     resume_not_resume_reject_confidence: float = Field(default=0.80, ge=0.0, le=1.0)
     resume_bedrock_connect_timeout_seconds: int = Field(default=5, gt=0)
     resume_bedrock_read_timeout_seconds: int = Field(default=45, gt=0)
+    knowledge_base_id: str = ""
+    knowledge_base_data_source_id: str = ""
+    knowledge_base_region: str = "sa-east-1"
+    knowledge_base_connect_timeout_seconds: int = Field(default=5, gt=0)
+    knowledge_base_read_timeout_seconds: int = Field(default=30, gt=0)
     document_client_secret_ids: str = ""
     document_client_keys_json: str | None = Field(default=None, repr=False)
     document_auth_cache_ttl_seconds: int = 300

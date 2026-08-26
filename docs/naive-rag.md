@@ -16,10 +16,12 @@ never select a different tenant or source in a retrieval request.
 ## Document metadata
 
 A knowledge document requires a project, asset identifier, document type, and
-language. Component identifier and human-friendly title are optional. The
-worker will later write an `original.pdf.metadata.json` S3 sidecar with these
-filterable fields: tenant_id, source_app, project_id, asset_id, component_id,
-document_type, and language.
+language. Component identifier and human-friendly title are optional. After the
+PDF signature and SHA-256 are validated, the worker writes the private
+`original.pdf.metadata.json` S3 sidecar next to the PDF. It includes document,
+tenant, source, project, asset, component, document type, title, language, and
+SHA-256 metadata. The sidecar is deliberately smaller than Bedrock’s 10 KiB
+limit and metadata is filterable without exposing the S3 URI.
 
 ## Retrieval contract
 
@@ -33,11 +35,15 @@ it never exposes a private S3 URI.
 
 ```
 PENDING_UPLOAD -> UPLOADED -> PROCESSING -> PREPROCESSED -> RAG_INDEXED
+                                 |
+                                 +-> knowledge_sync_status: PENDING | IN_PROGRESS
 ```
 
-Bedrock ingestion jobs are global to the S3 data source. A later sync-run record
-will store the Bedrock job ID, cutoff, status, counters, and errors. A document
-is RAG_INDEXED only after a successful job that includes it.
+Bedrock ingestion jobs are global to the S3 data source. The worker uses a
+deterministic client token, persists the returned job ID when one is available,
+and records `PENDING` when another source-wide sync is already active. A later
+scheduled reconciler will poll jobs, record counters/errors, and set
+`RAG_INDEXED` only after a successful job can include the document.
 
 ## Chat behavior
 

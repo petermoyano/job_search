@@ -12,6 +12,7 @@ from app.knowledge.contracts import (
     CRANE_INTELLIGENCE_SOURCE_APP,
     KNOWLEDGE_BASE_PROCESSING_POLICY,
     KnowledgeDocumentContext,
+    KnowledgeSyncStatus,
 )
 from app.radar.models import SearchProfileDocument
 
@@ -114,7 +115,6 @@ class DocumentRead(BaseModel):
     classification: str | None
     relevance_score: float | None
 
-
     decision: str | None
     result_type: str | None
     result_id: UUID | None
@@ -123,6 +123,7 @@ class DocumentRead(BaseModel):
     created_at: datetime
     updated_at: datetime
     uploaded_at: datetime | None
+    knowledge_sync_status: KnowledgeSyncStatus | None
 
 
 class ResumeProfileDraftRead(BaseModel):

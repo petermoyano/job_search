@@ -53,6 +53,14 @@ class DocumentStorage(Protocol):
     def head_object(self, *, bucket: str, key: str) -> StoredObject: ...
 
     def read_object(self, *, bucket: str, key: str) -> StoredObjectContent: ...
+    def write_object(
+        self,
+        *,
+        bucket: str,
+        key: str,
+        body: bytes,
+        content_type: str,
+    ) -> None: ...
 
 
 class S3DocumentStorage:
@@ -118,6 +126,23 @@ class S3DocumentStorage:
             },
         )
 
+    def write_object(
+        self,
+        *,
+        bucket: str,
+        key: str,
+        body: bytes,
+        content_type: str,
+    ) -> None:
+        try:
+            self.client.put_object(
+                Bucket=bucket,
+                Key=key,
+                Body=body,
+                ContentType=content_type,
+            )
+        except (BotoCoreError, ClientError) as exc:
+            raise StorageUnavailableError("Could not write document object") from exc
 
     def read_object(self, *, bucket: str, key: str) -> StoredObjectContent:
         try:
@@ -144,6 +169,7 @@ class S3DocumentStorage:
             },
             body=body,
         )
+
 
 @lru_cache
 def get_document_storage() -> S3DocumentStorage:
