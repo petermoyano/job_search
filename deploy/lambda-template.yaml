@@ -18,7 +18,7 @@ Parameters:
   DocumentUploadCorsOrigins:
     Type: CommaDelimitedList
     Default: >-
-      http://localhost:3000,http://127.0.0.1:3000,https://job-search-fe.vercel.app,https://151.vercel.app
+      http://localhost:3000,http://127.0.0.1:3000,https://job-search-fe.vercel.app,https://151.vercel.app,https://151-phi.vercel.app
     Description: Exact browser origins allowed to PUT documents with presigned URLs.
   DocumentsMaxFileSizeBytes:
     Type: Number
