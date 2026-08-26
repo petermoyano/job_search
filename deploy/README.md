@@ -189,10 +189,15 @@ configured embedding model, and operate only the declared vector index. Neither
 the document bucket nor the vector bucket is public. The resources are retained
 if the stack is removed to prevent accidental loss of indexed content.
 
-Deploying this template creates the knowledge base and source configuration but
-does not itself start an ingestion job. The document worker writes each validated
-Crane PDF sidecar and explicitly requests an idempotent source sync; it can write
-only that source prefix and start only this Knowledge Base. A later reconciler
-will confirm completion before a document becomes `RAG_INDEXED`; retrieval will
-use Bedrock `Retrieve` from the server-side API. Keep the model and the 1,024
-vector dimensions aligned if either is changed.
+Deploying this template creates the knowledge base, source configuration, and
+the `job-search-knowledge-sync` Lambda scheduled by EventBridge every five
+minutes. The document worker writes each validated Crane PDF sidecar and
+explicitly requests an idempotent source sync; it can write only that source
+prefix and start only this Knowledge Base. The scheduled Lambda can read only
+the database URL parameter and start or inspect jobs for this Knowledge Base.
+It promotes a document to `RAG_INDEXED` only when Bedrock reports `COMPLETE`;
+a `FAILED` or `STOPPED` job remains outside retrieval with a safe database
+error. The deployment workflow publishes the existing `<git-sha>-worker`
+image to both native handlers. Retrieval will use Bedrock `Retrieve` from the
+server-side API. Keep the model and the 1,024 vector dimensions aligned if
+either is changed.

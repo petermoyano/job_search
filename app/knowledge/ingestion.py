@@ -58,6 +58,14 @@ class KnowledgeBaseIngestionClient(Protocol):
         description: str,
     ) -> str | None: ...
 
+    def get_ingestion_job(
+        self,
+        *,
+        knowledge_base_id: str,
+        data_source_id: str,
+        ingestion_job_id: str,
+    ) -> "KnowledgeIngestionJob": ...
+
 
 @dataclass(frozen=True)
 class KnowledgeIngestionRequest:
@@ -65,6 +73,13 @@ class KnowledgeIngestionRequest:
     status: KnowledgeSyncStatus
     ingestion_job_id: str | None
     requested_at: datetime
+
+
+@dataclass(frozen=True)
+class KnowledgeIngestionJob:
+    ingestion_job_id: str
+    status: str
+    failure_reasons: tuple[str, ...] = ()
 
 
 class BedrockKnowledgeBaseIngestionClient:
@@ -131,13 +146,71 @@ class BedrockKnowledgeBaseIngestionClient:
             )
         return job_id
 
+    def get_ingestion_job(
+        self,
+        *,
+        knowledge_base_id: str,
+        data_source_id: str,
+        ingestion_job_id: str,
+    ) -> KnowledgeIngestionJob:
+        try:
+            response = self.client.get_ingestion_job(
+                knowledgeBaseId=knowledge_base_id,
+                dataSourceId=data_source_id,
+                ingestionJobId=ingestion_job_id,
+            )
+        except ClientError as exc:
+            self._raise_client_error(exc)
+        except (
+            BotoCoreError,
+            ConnectionClosedError,
+            EndpointConnectionError,
+            ReadTimeoutError,
+        ) as exc:
+            raise KnowledgeIngestionTransientError(
+                "Bedrock Knowledge Bases is temporarily unavailable"
+            ) from exc
+
+        job = response.get("ingestionJob")
+        if not isinstance(job, dict):
+            raise KnowledgeIngestionTransientError(
+                "Bedrock Knowledge Bases did not return an ingestion job"
+            )
+        status = job.get("status")
+        returned_job_id = job.get("ingestionJobId")
+        if not isinstance(status, str) or not isinstance(returned_job_id, str):
+            raise KnowledgeIngestionTransientError(
+                "Bedrock Knowledge Bases returned an invalid ingestion job"
+            )
+        raw_failure_reasons = job.get("failureReasons", [])
+        failure_reasons = tuple(
+            reason for reason in raw_failure_reasons if isinstance(reason, str)
+        )
+        return KnowledgeIngestionJob(
+            ingestion_job_id=returned_job_id,
+            status=status,
+            failure_reasons=failure_reasons,
+        )
+
+    @staticmethod
+    def _raise_client_error(exc: ClientError) -> None:
+        code = str(exc.response.get("Error", {}).get("Code", "ClientError"))
+        if code in TRANSIENT_ERROR_CODES:
+            raise KnowledgeIngestionTransientError(
+                "Bedrock Knowledge Bases is temporarily unavailable"
+            ) from exc
+        raise KnowledgeIngestionPermanentError(
+            code=code,
+            message="Bedrock Knowledge Bases rejected the ingestion request",
+        ) from exc
+
 
 class KnowledgeIngestionService:
     def __init__(
         self,
         *,
-        storage: DocumentStorage,
         settings: Settings,
+        storage: DocumentStorage | None = None,
         client: KnowledgeBaseIngestionClient | None = None,
     ) -> None:
         self.storage = storage
@@ -155,6 +228,11 @@ class KnowledgeIngestionService:
         document_sha256: str,
     ) -> KnowledgeIngestionRequest:
         self._validate_document_scope(document)
+        if self.storage is None:
+            raise KnowledgeIngestionPermanentError(
+                code="KNOWLEDGE_STORAGE_NOT_CONFIGURED",
+                message="Document storage is required to create Knowledge Base metadata",
+            )
         sidecar_key, body = build_metadata_sidecar(
             document=document,
             document_sha256=document_sha256,
@@ -170,19 +248,46 @@ class KnowledgeIngestionService:
             raise KnowledgeIngestionTransientError(
                 "Could not write the Bedrock metadata sidecar"
             ) from exc
+        return self._request_ingestion_job(
+            document=document,
+            document_sha256=document_sha256,
+            sidecar_key=sidecar_key,
+        )
 
-        if (
-            not self.settings.knowledge_base_id
-            or not self.settings.knowledge_base_data_source_id
-        ):
+    def retry_pending_sync(self, *, document: Document) -> KnowledgeIngestionRequest:
+        self._validate_document_scope(document)
+        if not document.sha256:
             raise KnowledgeIngestionPermanentError(
-                code="KNOWLEDGE_BASE_NOT_CONFIGURED",
-                message="Knowledge Base ingestion is not configured",
+                code="KNOWLEDGE_DOCUMENT_NOT_PREPROCESSED",
+                message="Document hash is required to retry Knowledge Base ingestion",
             )
+        return self._request_ingestion_job(
+            document=document,
+            document_sha256=document.sha256,
+            sidecar_key=f"{document.s3_key}.metadata.json",
+        )
 
+    def get_ingestion_job(
+        self, *, ingestion_job_id: str
+    ) -> KnowledgeIngestionJob:
+        knowledge_base_id, data_source_id = self._configuration()
+        return self.client.get_ingestion_job(
+            knowledge_base_id=knowledge_base_id,
+            data_source_id=data_source_id,
+            ingestion_job_id=ingestion_job_id,
+        )
+
+    def _request_ingestion_job(
+        self,
+        *,
+        document: Document,
+        document_sha256: str,
+        sidecar_key: str,
+    ) -> KnowledgeIngestionRequest:
+        knowledge_base_id, data_source_id = self._configuration()
         job_id = self.client.start_ingestion_job(
-            knowledge_base_id=self.settings.knowledge_base_id,
-            data_source_id=self.settings.knowledge_base_data_source_id,
+            knowledge_base_id=knowledge_base_id,
+            data_source_id=data_source_id,
             client_token=_ingestion_client_token(
                 document_id=str(document.id),
                 document_sha256=document_sha256,
@@ -199,6 +304,16 @@ class KnowledgeIngestionService:
             ingestion_job_id=job_id,
             requested_at=now_utc(),
         )
+
+    def _configuration(self) -> tuple[str, str]:
+        knowledge_base_id = self.settings.knowledge_base_id
+        data_source_id = self.settings.knowledge_base_data_source_id
+        if not knowledge_base_id or not data_source_id:
+            raise KnowledgeIngestionPermanentError(
+                code="KNOWLEDGE_BASE_NOT_CONFIGURED",
+                message="Knowledge Base ingestion is not configured",
+            )
+        return knowledge_base_id, data_source_id
 
     @staticmethod
     def _validate_document_scope(document: Document) -> None:

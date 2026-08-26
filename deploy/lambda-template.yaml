@@ -103,6 +103,17 @@ Resources:
         - Key: BoundedContext
           Value: documents
 
+  KnowledgeSyncLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/job-search-knowledge-sync
+      RetentionInDays: 14
+      Tags:
+        - Key: Application
+          Value: job-search
+        - Key: BoundedContext
+          Value: knowledge
+
   DocumentBucket:
     Type: AWS::S3::Bucket
     DeletionPolicy: Retain
@@ -550,6 +561,91 @@ Resources:
       MaximumBatchingWindowInSeconds: 0
       FunctionResponseTypes:
         - ReportBatchItemFailures
+  KnowledgeSyncExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: job-search-knowledge-sync
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ReadDatabaseUrlParameter
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub >-
+                  arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${DatabaseUrlParameterName}
+        - PolicyName: ReconcileCraneKnowledgeIngestion
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:StartIngestionJob
+                  - bedrock:GetIngestionJob
+                Resource: !GetAtt CraneKnowledgeBase.KnowledgeBaseArn
+      Tags:
+        - Key: Application
+          Value: job-search
+        - Key: BoundedContext
+          Value: knowledge
+
+  KnowledgeSyncFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: KnowledgeSyncLogGroup
+    Properties:
+      FunctionName: job-search-knowledge-sync
+      Description: Reconciles Bedrock Knowledge Base ingestion jobs for Crane Intelligence.
+      PackageType: Image
+      Code:
+        ImageUri: !Ref WorkerImageUri
+      ImageConfig:
+        Command:
+          - app.knowledge.sync_worker.handler
+      Role: !GetAtt KnowledgeSyncExecutionRole.Arn
+      Architectures:
+        - x86_64
+      MemorySize: 256
+      Timeout: 60
+      Environment:
+        Variables:
+          APP_ENV: production
+          DATABASE_URL_SSM_PARAMETER: !Ref DatabaseUrlParameterName
+          INITIALIZE_DATABASE: "false"
+          KNOWLEDGE_BASE_ID: !Ref CraneKnowledgeBase
+          KNOWLEDGE_BASE_DATA_SOURCE_ID: !Ref CraneKnowledgeDataSource
+          KNOWLEDGE_BASE_REGION: !Ref AWS::Region
+      Tags:
+        - Key: Application
+          Value: job-search
+        - Key: BoundedContext
+          Value: knowledge
+
+  KnowledgeSyncSchedule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Reconciles pending Crane Intelligence Knowledge Base ingestion jobs.
+      ScheduleExpression: rate(5 minutes)
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt KnowledgeSyncFunction.Arn
+          Id: KnowledgeSyncLambda
+
+  KnowledgeSyncSchedulePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref KnowledgeSyncFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt KnowledgeSyncSchedule.Arn
 
   GitHubWorkerDeployPolicy:
     Type: AWS::IAM::Policy
@@ -565,7 +661,9 @@ Resources:
               - lambda:GetFunction
               - lambda:GetFunctionConfiguration
               - lambda:UpdateFunctionCode
-            Resource: !GetAtt DocumentProcessingFunction.Arn
+            Resource:
+              - !GetAtt DocumentProcessingFunction.Arn
+              - !GetAtt KnowledgeSyncFunction.Arn
 
   BackendFunction:
     Type: AWS::Lambda::Function
@@ -671,6 +769,11 @@ Outputs:
   ResumeProcessingModelId:
     Description: Bedrock model used by the resume processing policy.
     Value: !Ref ResumeProcessingModelId
+  KnowledgeSyncFunctionName:
+    Description: Scheduled Lambda that reconciles Bedrock Knowledge Base ingestion jobs.
+    Value: !Ref KnowledgeSyncFunction
+  KnowledgeSyncFunctionArn:
+    Value: !GetAtt KnowledgeSyncFunction.Arn
   CraneKnowledgeBaseId:
     Description: Bedrock Knowledge Base ID for Crane Intelligence retrieval.
     Value: !Ref CraneKnowledgeBase

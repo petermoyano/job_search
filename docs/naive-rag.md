@@ -41,9 +41,11 @@ PENDING_UPLOAD -> UPLOADED -> PROCESSING -> PREPROCESSED -> RAG_INDEXED
 
 Bedrock ingestion jobs are global to the S3 data source. The worker uses a
 deterministic client token, persists the returned job ID when one is available,
-and records `PENDING` when another source-wide sync is already active. A later
-scheduled reconciler will poll jobs, record counters/errors, and set
-`RAG_INDEXED` only after a successful job can include the document.
+and records `PENDING` when another source-wide sync is already active. The
+`job-search-knowledge-sync` Lambda runs every five minutes: it retries
+pending requests, polls active jobs, and sets `RAG_INDEXED` only after Bedrock
+reports `COMPLETE`. A `FAILED` or `STOPPED` job remains out of retrieval,
+records a safe error, and is visible as `knowledge_sync_status=FAILED`.
 
 ## Chat behavior
 
