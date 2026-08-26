@@ -64,6 +64,10 @@ Parameters:
   ResumeNotResumeRejectConfidence:
     Type: Number
     Default: 0.80
+  CraneKnowledgeBaseEmbeddingModelId:
+    Type: String
+    Default: cohere.embed-multilingual-v3
+    Description: In-region Bedrock embedding model used by the Crane Intelligence knowledge base.
   JobSearchTenantId:
     Type: String
     Default: job-search
@@ -98,6 +102,17 @@ Resources:
           Value: job-search
         - Key: BoundedContext
           Value: documents
+
+  KnowledgeSyncLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/job-search-knowledge-sync
+      RetentionInDays: 14
+      Tags:
+        - Key: Application
+          Value: job-search
+        - Key: BoundedContext
+          Value: knowledge
 
   DocumentBucket:
     Type: AWS::S3::Bucket
@@ -163,6 +178,140 @@ Resources:
               Bool:
                 aws:SecureTransport: "false"
 
+  CraneKnowledgeVectorBucket:
+    Type: AWS::S3Vectors::VectorBucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Tags:
+        - Key: Application
+          Value: job-search
+        - Key: BoundedContext
+          Value: knowledge
+        - Key: SourceApplication
+          Value: crane-intelligence
+
+  CraneKnowledgeVectorIndex:
+    Type: AWS::S3Vectors::Index
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      VectorBucketArn: !GetAtt CraneKnowledgeVectorBucket.VectorBucketArn
+      DataType: float32
+      Dimension: 1024
+      DistanceMetric: cosine
+      Tags:
+        - Key: Application
+          Value: job-search
+        - Key: BoundedContext
+          Value: knowledge
+        - Key: SourceApplication
+          Value: crane-intelligence
+
+  CraneKnowledgeBaseExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: job-search-crane-knowledge-base
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: bedrock.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+              ArnLike:
+                aws:SourceArn: !Sub arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/*
+      Policies:
+        - PolicyName: InvokeCraneKnowledgeEmbeddingModel
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                Resource: !Sub arn:${AWS::Partition}:bedrock:${AWS::Region}::foundation-model/${CraneKnowledgeBaseEmbeddingModelId}
+        - PolicyName: ReadCraneKnowledgeDocuments
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !GetAtt DocumentBucket.Arn
+                Condition:
+                  StringLike:
+                    s3:prefix:
+                      - !Sub documents/${CraneIntelligenceTenantId}/crane-intelligence/*
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub ${DocumentBucket.Arn}/documents/${CraneIntelligenceTenantId}/crane-intelligence/*
+        - PolicyName: AccessCraneKnowledgeVectorIndex
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3vectors:DeleteVectors
+                  - s3vectors:GetIndex
+                  - s3vectors:GetVectors
+                  - s3vectors:PutVectors
+                  - s3vectors:QueryVectors
+                Resource: !Ref CraneKnowledgeVectorIndex
+      Tags:
+        - Key: Application
+          Value: job-search
+        - Key: BoundedContext
+          Value: knowledge
+        - Key: SourceApplication
+          Value: crane-intelligence
+
+  CraneKnowledgeBase:
+    Type: AWS::Bedrock::KnowledgeBase
+    DependsOn:
+      - CraneKnowledgeVectorIndex
+      - CraneKnowledgeBaseExecutionRole
+    Properties:
+      Name: job-search-crane-rag
+      Description: Retrieval knowledge base for Crane Intelligence documents.
+      RoleArn: !GetAtt CraneKnowledgeBaseExecutionRole.Arn
+      KnowledgeBaseConfiguration:
+        Type: VECTOR
+        VectorKnowledgeBaseConfiguration:
+          EmbeddingModelArn: !Sub arn:${AWS::Partition}:bedrock:${AWS::Region}::foundation-model/${CraneKnowledgeBaseEmbeddingModelId}
+      StorageConfiguration:
+        Type: S3_VECTORS
+        S3VectorsConfiguration:
+          VectorBucketArn: !GetAtt CraneKnowledgeVectorBucket.VectorBucketArn
+          IndexArn: !Ref CraneKnowledgeVectorIndex
+      Tags:
+        Application: job-search
+        BoundedContext: knowledge
+        SourceApplication: crane-intelligence
+
+  CraneKnowledgeDataSource:
+    Type: AWS::Bedrock::DataSource
+    DependsOn: CraneKnowledgeBase
+    Properties:
+      Name: job-search-crane-documents
+      Description: Crane Intelligence documents restricted to the configured tenant prefix.
+      KnowledgeBaseId: !Ref CraneKnowledgeBase
+      DataDeletionPolicy: DELETE
+      DataSourceConfiguration:
+        Type: S3
+        S3Configuration:
+          BucketArn: !GetAtt DocumentBucket.Arn
+          InclusionPrefixes:
+            - !Sub documents/${CraneIntelligenceTenantId}/crane-intelligence/
+      VectorIngestionConfiguration:
+        ChunkingConfiguration:
+          ChunkingStrategy: FIXED_SIZE
+          FixedSizeChunkingConfiguration:
+            MaxTokens: 300
+            OverlapPercentage: 20
   DocumentProcessingDeadLetterQueue:
     Type: AWS::SQS::Queue
     DeletionPolicy: Retain
@@ -279,6 +428,13 @@ Resources:
                 Effect: Allow
                 Action: sqs:SendMessage
                 Resource: !GetAtt DocumentProcessingQueue.Arn
+        - PolicyName: RetrieveCraneKnowledge
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: bedrock:Retrieve
+                Resource: !GetAtt CraneKnowledgeBase.KnowledgeBaseArn
       Tags:
         - Key: Application
           Value: job-search
@@ -339,6 +495,20 @@ Resources:
                 Action: bedrock:InvokeModel
                 Resource: !Sub >-
                   arn:${AWS::Partition}:bedrock:${AWS::Region}::foundation-model/${ResumeProcessingModelId}
+        - PolicyName: WriteCraneKnowledgeMetadata
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub ${DocumentBucket.Arn}/documents/${CraneIntelligenceTenantId}/crane-intelligence/*
+        - PolicyName: StartCraneKnowledgeIngestion
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: bedrock:StartIngestionJob
+                Resource: !GetAtt CraneKnowledgeBase.KnowledgeBaseArn
       Tags:
         - Key: Application
           Value: job-search
@@ -370,6 +540,9 @@ Resources:
           DOCUMENT_PROCESSING_LEASE_SECONDS: "300"
           RESUME_PROCESSING_MODEL_ID: !Ref ResumeProcessingModelId
           RESUME_PROCESSING_BEDROCK_REGION: !Ref AWS::Region
+          KNOWLEDGE_BASE_ID: !Ref CraneKnowledgeBase
+          KNOWLEDGE_BASE_DATA_SOURCE_ID: !Ref CraneKnowledgeDataSource
+          KNOWLEDGE_BASE_REGION: !Ref AWS::Region
           RESUME_MIN_EXTRACTED_CHARACTERS: !Ref ResumeMinExtractedCharacters
           RESUME_MAX_MODEL_INPUT_CHARACTERS: !Ref ResumeMaxModelInputCharacters
           RESUME_ACCEPT_CONFIDENCE: !Ref ResumeAcceptConfidence
@@ -391,6 +564,91 @@ Resources:
       MaximumBatchingWindowInSeconds: 0
       FunctionResponseTypes:
         - ReportBatchItemFailures
+  KnowledgeSyncExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: job-search-knowledge-sync
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ReadDatabaseUrlParameter
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub >-
+                  arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${DatabaseUrlParameterName}
+        - PolicyName: ReconcileCraneKnowledgeIngestion
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:StartIngestionJob
+                  - bedrock:GetIngestionJob
+                Resource: !GetAtt CraneKnowledgeBase.KnowledgeBaseArn
+      Tags:
+        - Key: Application
+          Value: job-search
+        - Key: BoundedContext
+          Value: knowledge
+
+  KnowledgeSyncFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: KnowledgeSyncLogGroup
+    Properties:
+      FunctionName: job-search-knowledge-sync
+      Description: Reconciles Bedrock Knowledge Base ingestion jobs for Crane Intelligence.
+      PackageType: Image
+      Code:
+        ImageUri: !Ref WorkerImageUri
+      ImageConfig:
+        Command:
+          - app.knowledge.sync_worker.handler
+      Role: !GetAtt KnowledgeSyncExecutionRole.Arn
+      Architectures:
+        - x86_64
+      MemorySize: 256
+      Timeout: 60
+      Environment:
+        Variables:
+          APP_ENV: production
+          DATABASE_URL_SSM_PARAMETER: !Ref DatabaseUrlParameterName
+          INITIALIZE_DATABASE: "false"
+          KNOWLEDGE_BASE_ID: !Ref CraneKnowledgeBase
+          KNOWLEDGE_BASE_DATA_SOURCE_ID: !Ref CraneKnowledgeDataSource
+          KNOWLEDGE_BASE_REGION: !Ref AWS::Region
+      Tags:
+        - Key: Application
+          Value: job-search
+        - Key: BoundedContext
+          Value: knowledge
+
+  KnowledgeSyncSchedule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Reconciles pending Crane Intelligence Knowledge Base ingestion jobs.
+      ScheduleExpression: rate(5 minutes)
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt KnowledgeSyncFunction.Arn
+          Id: KnowledgeSyncLambda
+
+  KnowledgeSyncSchedulePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref KnowledgeSyncFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt KnowledgeSyncSchedule.Arn
 
   GitHubWorkerDeployPolicy:
     Type: AWS::IAM::Policy
@@ -406,7 +664,9 @@ Resources:
               - lambda:GetFunction
               - lambda:GetFunctionConfiguration
               - lambda:UpdateFunctionCode
-            Resource: !GetAtt DocumentProcessingFunction.Arn
+            Resource:
+              - !GetAtt DocumentProcessingFunction.Arn
+              - !GetAtt KnowledgeSyncFunction.Arn
 
   BackendFunction:
     Type: AWS::Lambda::Function
@@ -442,6 +702,9 @@ Resources:
             - - !Ref JobSearchDocumentClientSecret
               - !Ref CraneIntelligenceDocumentClientSecret
           AWS_LWA_PORT: "8000"
+          KNOWLEDGE_BASE_ID: !Ref CraneKnowledgeBase
+          KNOWLEDGE_BASE_DATA_SOURCE_ID: !Ref CraneKnowledgeDataSource
+          KNOWLEDGE_BASE_REGION: !Ref AWS::Region
           AWS_LWA_READINESS_CHECK_PATH: /health
           AWS_LWA_ENABLE_COMPRESSION: "true"
       Tags:
@@ -512,3 +775,26 @@ Outputs:
   ResumeProcessingModelId:
     Description: Bedrock model used by the resume processing policy.
     Value: !Ref ResumeProcessingModelId
+  KnowledgeSyncFunctionName:
+    Description: Scheduled Lambda that reconciles Bedrock Knowledge Base ingestion jobs.
+    Value: !Ref KnowledgeSyncFunction
+  KnowledgeSyncFunctionArn:
+    Value: !GetAtt KnowledgeSyncFunction.Arn
+  CraneKnowledgeBaseId:
+    Description: Bedrock Knowledge Base ID for Crane Intelligence retrieval.
+    Value: !Ref CraneKnowledgeBase
+  CraneKnowledgeDataSourceId:
+    Description: S3 data source ID managed by the Crane Intelligence knowledge base.
+    Value: !Ref CraneKnowledgeDataSource
+  CraneKnowledgeVectorBucketArn:
+    Description: S3 Vectors bucket ARN retained independently of the stack lifecycle.
+    Value: !GetAtt CraneKnowledgeVectorBucket.VectorBucketArn
+  CraneKnowledgeVectorIndexArn:
+    Description: S3 Vectors index ARN used by the Crane Intelligence knowledge base.
+    Value: !Ref CraneKnowledgeVectorIndex
+  CraneKnowledgeBaseExecutionRoleArn:
+    Description: Least-privilege Bedrock execution role for the Crane Intelligence knowledge base.
+    Value: !GetAtt CraneKnowledgeBaseExecutionRole.Arn
+  CraneKnowledgeBaseEmbeddingModelId:
+    Description: Bedrock embedding model whose 1024 dimensions match the vector index.
+    Value: !Ref CraneKnowledgeBaseEmbeddingModelId

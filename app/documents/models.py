@@ -18,6 +18,7 @@ from sqlalchemy import (
     Uuid,
     func,
 )
+from app.knowledge.contracts import KnowledgeSyncStatus
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -118,6 +119,18 @@ class Document(Base):
         DateTime(timezone=True), nullable=True
     )
     preprocessed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    knowledge_sync_status: Mapped[KnowledgeSyncStatus | None] = mapped_column(
+        String(20), nullable=True
+    )
+    knowledge_ingestion_job_id: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
+    knowledge_sync_requested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    knowledge_sync_completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
 

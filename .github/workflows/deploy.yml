@@ -17,6 +17,7 @@ env:
   LAMBDA_FUNCTION: job-search-api
   WORKER_LAMBDA_FUNCTION: job-search-document-processor
   FRONTEND_ORIGIN: https://job-search-fe.vercel.app
+  KNOWLEDGE_SYNC_LAMBDA_FUNCTION: job-search-knowledge-sync
   FRONTEND_PREVIEW_ORIGIN: https://job-search-preview-petermoyanos-projects.vercel.app
 
 jobs:
@@ -119,6 +120,13 @@ jobs:
           aws lambda wait function-updated \
             --function-name "$WORKER_LAMBDA_FUNCTION"
 
+          aws lambda update-function-code \
+            --function-name "$KNOWLEDGE_SYNC_LAMBDA_FUNCTION" \
+            --image-uri "${{ steps.build-images.outputs.worker_image }}" \
+            --query "{FunctionName:FunctionName,Version:Version,State:State}"
+          aws lambda wait function-updated \
+            --function-name "$KNOWLEDGE_SYNC_LAMBDA_FUNCTION"
+
       - name: Read Function URL
         id: function-url
         run: |
@@ -174,4 +182,5 @@ jobs:
             echo "- API function: \`$LAMBDA_FUNCTION\`"
             echo "- Worker function: \`$WORKER_LAMBDA_FUNCTION\`"
             echo "- API: $API_BASE_URL"
+            echo "- Knowledge sync function: \`$KNOWLEDGE_SYNC_LAMBDA_FUNCTION\`"
           } >> "$GITHUB_STEP_SUMMARY"

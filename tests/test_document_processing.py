@@ -23,6 +23,8 @@ from app.documents.storage import (
     StorageUnavailableError,
     StoredObjectContent,
 )
+from app.knowledge.contracts import KnowledgeSyncStatus
+from app.knowledge.ingestion import KnowledgeIngestionService
 
 
 VALID_PDF = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF\n"
@@ -39,6 +41,44 @@ class ProcessingStorage:
         if (bucket, key) in self.transient_keys:
             raise StorageUnavailableError("temporary S3 failure")
         return self.objects[(bucket, key)]
+
+    def write_object(
+        self,
+        *,
+        bucket: str,
+        key: str,
+        body: bytes,
+        content_type: str,
+    ) -> None:
+        self.objects[(bucket, key)] = StoredObjectContent(
+            size_bytes=len(body),
+            metadata={},
+            body=body,
+        )
+
+
+class FakeKnowledgeIngestionClient:
+    def __init__(self, *, job_id: str | None = "ABCDEFGHIJ") -> None:
+        self.job_id = job_id
+        self.calls: list[dict[str, str]] = []
+
+    def start_ingestion_job(
+        self,
+        *,
+        knowledge_base_id: str,
+        data_source_id: str,
+        client_token: str,
+        description: str,
+    ) -> str | None:
+        self.calls.append(
+            {
+                "knowledge_base_id": knowledge_base_id,
+                "data_source_id": data_source_id,
+                "client_token": client_token,
+                "description": description,
+            }
+        )
+        return self.job_id
 
 
 @pytest.fixture(autouse=True)
@@ -97,9 +137,7 @@ def create_document(
     return document_id
 
 
-def process_document(
-    *, document_id: UUID, storage: ProcessingStorage
-):
+def process_document(*, document_id: UUID, storage: ProcessingStorage):
     with SessionLocal() as session:
         return DocumentProcessingService(
             repository=DocumentRepository(session),
@@ -236,9 +274,7 @@ def test_worker_returns_only_transient_records_as_batch_failures(monkeypatch) ->
             "Records": [
                 {
                     "messageId": "valid-message",
-                    "body": json.dumps(
-                        {"version": 1, "document_id": str(valid_id)}
-                    ),
+                    "body": json.dumps({"version": 1, "document_id": str(valid_id)}),
                 },
                 {
                     "messageId": "transient-message",
@@ -251,9 +287,7 @@ def test_worker_returns_only_transient_records_as_batch_failures(monkeypatch) ->
         None,
     )
 
-    assert response == {
-        "batchItemFailures": [{"itemIdentifier": "transient-message"}]
-    }
+    assert response == {"batchItemFailures": [{"itemIdentifier": "transient-message"}]}
     assert load_document(valid_id).status == DocumentStatus.PREPROCESSED
     assert load_document(transient_id).status == DocumentStatus.UPLOADED
 
@@ -284,3 +318,112 @@ def test_worker_rejects_tenant_metadata_in_message(monkeypatch) -> None:
     assert response == {"batchItemFailures": []}
     assert load_document(document_id).status == DocumentStatus.UPLOADED
     assert storage.read_count == 0
+
+
+def _make_knowledge_document(
+    *,
+    storage: ProcessingStorage,
+) -> UUID:
+    document_id = create_document(
+        storage=storage,
+        tenant_id="creactis",
+        source_app="crane-intelligence",
+    )
+    with SessionLocal() as session:
+        document = session.get(Document, document_id)
+        assert document is not None
+        document.project_id = "crane-demo"
+        document.processing_policy = "knowledge-base"
+        document.context = {
+            "knowledge": {
+                "asset_id": "crane-151",
+                "component_id": "hoist",
+                "document_type": "maintenance-procedure",
+                "document_title": "Manual de mantenimiento",
+                "language": "es",
+            }
+        }
+        session.commit()
+    return document_id
+
+
+def test_knowledge_document_writes_sidecar_and_tracks_ingestion_job() -> None:
+    storage = ProcessingStorage()
+    document_id = _make_knowledge_document(storage=storage)
+    settings = get_settings()
+    original_knowledge_base_id = settings.knowledge_base_id
+    original_data_source_id = settings.knowledge_base_data_source_id
+    settings.knowledge_base_id = "KBABCDEFGHI"
+    settings.knowledge_base_data_source_id = "DSABCDEFGHI"
+    client = FakeKnowledgeIngestionClient()
+    try:
+        with SessionLocal() as session:
+            result = DocumentProcessingService(
+                repository=DocumentRepository(session),
+                storage=storage,
+                settings=settings,
+                knowledge_ingestion_service=KnowledgeIngestionService(
+                    storage=storage,
+                    settings=settings,
+                    client=client,
+                ),
+            ).process(document_id=document_id)
+    finally:
+        settings.knowledge_base_id = original_knowledge_base_id
+        settings.knowledge_base_data_source_id = original_data_source_id
+
+    document = load_document(document_id)
+    sidecar_key = f"{document.s3_key}.metadata.json"
+    sidecar = json.loads(storage.objects[(document.s3_bucket, sidecar_key)].body)
+
+    assert result.status == DocumentStatus.PREPROCESSED
+    assert document.knowledge_sync_status == KnowledgeSyncStatus.IN_PROGRESS
+    assert document.knowledge_ingestion_job_id == "ABCDEFGHIJ"
+    assert document.knowledge_sync_requested_at is not None
+    assert sidecar == {
+        "metadataAttributes": {
+            "document_id": str(document_id),
+            "tenant_id": "creactis",
+            "source_app": "crane-intelligence",
+            "project_id": "crane-demo",
+            "asset_id": "crane-151",
+            "component_id": "hoist",
+            "document_type": "maintenance-procedure",
+            "document_title": "Manual de mantenimiento",
+            "language": "es",
+            "sha256": sha256(VALID_PDF).hexdigest(),
+        }
+    }
+    assert client.calls[0]["knowledge_base_id"] == "KBABCDEFGHI"
+    assert client.calls[0]["data_source_id"] == "DSABCDEFGHI"
+    assert len(client.calls[0]["client_token"]) >= 33
+
+
+def test_knowledge_document_records_pending_when_ingestion_is_already_running() -> None:
+    storage = ProcessingStorage()
+    document_id = _make_knowledge_document(storage=storage)
+    settings = get_settings()
+    original_knowledge_base_id = settings.knowledge_base_id
+    original_data_source_id = settings.knowledge_base_data_source_id
+    settings.knowledge_base_id = "KBABCDEFGHI"
+    settings.knowledge_base_data_source_id = "DSABCDEFGHI"
+    try:
+        with SessionLocal() as session:
+            DocumentProcessingService(
+                repository=DocumentRepository(session),
+                storage=storage,
+                settings=settings,
+                knowledge_ingestion_service=KnowledgeIngestionService(
+                    storage=storage,
+                    settings=settings,
+                    client=FakeKnowledgeIngestionClient(job_id=None),
+                ),
+            ).process(document_id=document_id)
+    finally:
+        settings.knowledge_base_id = original_knowledge_base_id
+        settings.knowledge_base_data_source_id = original_data_source_id
+
+    document = load_document(document_id)
+    assert document.status == DocumentStatus.PREPROCESSED
+    assert document.knowledge_sync_status == KnowledgeSyncStatus.PENDING
+    assert document.knowledge_ingestion_job_id is None

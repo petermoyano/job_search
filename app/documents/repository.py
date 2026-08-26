@@ -13,6 +13,12 @@ from app.documents.models import (
     ResumeProfileDraft,
 )
 
+from app.knowledge.contracts import (
+    CRANE_INTELLIGENCE_SOURCE_APP,
+    KNOWLEDGE_BASE_PROCESSING_POLICY,
+    KnowledgeSyncStatus,
+)
+
 
 class DocumentRepository:
     def __init__(self, session: Session) -> None:
@@ -47,6 +53,40 @@ class DocumentRepository:
         if for_update:
             statement = statement.with_for_update()
         return self.session.scalars(statement).one_or_none()
+
+    def list_knowledge_sync_candidates(self, *, limit: int) -> list[Document]:
+        statement = (
+            select(Document)
+            .where(
+                Document.source_app == CRANE_INTELLIGENCE_SOURCE_APP,
+                Document.processing_policy == KNOWLEDGE_BASE_PROCESSING_POLICY,
+                Document.status == DocumentStatus.PREPROCESSED,
+                Document.knowledge_sync_status.in_(
+                    [KnowledgeSyncStatus.PENDING, KnowledgeSyncStatus.IN_PROGRESS]
+                ),
+            )
+            .order_by(Document.knowledge_sync_requested_at.asc())
+            .limit(limit)
+        )
+        return list(self.session.scalars(statement).all())
+
+    def list_rag_indexed_by_ids(
+        self,
+        *,
+        document_ids: set[UUID],
+        auth_context: AuthContext,
+    ) -> dict[UUID, Document]:
+        if not document_ids:
+            return {}
+        statement = select(Document).where(
+            Document.id.in_(document_ids),
+            Document.source_app == CRANE_INTELLIGENCE_SOURCE_APP,
+            Document.tenant_id.in_(auth_context.tenant_ids),
+            Document.processing_policy == KNOWLEDGE_BASE_PROCESSING_POLICY,
+            Document.status == DocumentStatus.RAG_INDEXED,
+        )
+        documents = self.session.scalars(statement).all()
+        return {document.id: document for document in documents}
 
     def claim_for_processing(
         self,

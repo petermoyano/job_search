@@ -174,3 +174,32 @@ Both runtime Lambdas use Neon's pooled URL from SSM. Alembic continues to use a
 direct Neon URL for schema operations. Pytest forces SQLite in memory before
 importing application sessions so a developer's local `.env` can never make
 the test suite mutate Neon.
+
+## Crane Intelligence Knowledge Base P1B
+
+CloudFormation declares a self-managed Amazon Bedrock Knowledge Base for
+`crane-intelligence` documents under
+`documents/<creactis-tenant>/crane-intelligence/`. It uses the existing
+private document bucket, a retained S3 Vectors bucket and 1,024-dimension
+float32/cosine index, and `cohere.embed-multilingual-v3` for Spanish and
+English semantic search.
+
+The Bedrock role can read only that tenant/source prefix, invoke only the
+configured embedding model, and operate only the declared vector index. Neither
+the document bucket nor the vector bucket is public. The resources are retained
+if the stack is removed to prevent accidental loss of indexed content.
+
+Deploying this template creates the knowledge base, source configuration, and
+the `job-search-knowledge-sync` Lambda scheduled by EventBridge every five
+minutes. The document worker writes each validated Crane PDF sidecar and
+explicitly requests an idempotent source sync; it can write only that source
+prefix and start only this Knowledge Base. The scheduled Lambda can read only
+the database URL parameter and start or inspect jobs for this Knowledge Base.
+It promotes a document to `RAG_INDEXED` only when Bedrock reports `COMPLETE`;
+a `FAILED` or `STOPPED` job remains outside retrieval with a safe database
+error. The deployment workflow publishes the existing `<git-sha>-worker`
+image to both native handlers. The API Lambda has `bedrock:Retrieve` only
+against this Knowledge Base; its authenticated `POST /knowledge/retrieve`
+route derives tenant and source filters from the credential and never returns
+S3 locations. Keep the model and the 1,024 vector dimensions aligned if either
+is changed.

@@ -26,6 +26,10 @@ from app.documents.queue import (
 from app.documents.repository import DocumentRepository
 from app.documents.schemas import UploadUrlRequest
 from app.documents.service import DocumentService, build_s3_key
+from app.knowledge.contracts import (
+    KNOWLEDGE_BASE_PROCESSING_POLICY,
+    KnowledgeRetrieveRequest,
+)
 from app.documents.storage import (
     ObjectNotFoundError,
     PresignedUpload,
@@ -141,6 +145,98 @@ def valid_payload(**updates: object) -> dict[str, object]:
     }
     payload.update(updates)
     return payload
+
+
+
+def test_valid_knowledge_base_upload_request() -> None:
+    request = UploadUrlRequest.model_validate(
+        valid_payload(
+            tenant_id="creactis",
+            project_id="crane-demo",
+            source_app="crane-intelligence",
+            processing_policy=KNOWLEDGE_BASE_PROCESSING_POLICY,
+            context={
+                "knowledge": {
+                    "asset_id": "CRN-01",
+                    "component_id": "hoist",
+                    "document_type": "manual",
+                    "document_title": "FORVIS FVS3 manual",
+                    "language": "es",
+                }
+            },
+        )
+    )
+
+    assert request.context is not None
+    assert request.context.knowledge is not None
+    assert request.context.knowledge.asset_id == "CRN-01"
+
+
+@pytest.mark.parametrize(
+    "updates",
+    [
+        {
+            "source_app": "job-search",
+            "project_id": "crane-demo",
+            "processing_policy": KNOWLEDGE_BASE_PROCESSING_POLICY,
+            "context": {
+                "knowledge": {
+                    "asset_id": "CRN-01",
+                    "document_type": "manual",
+                }
+            },
+        },
+        {
+            "tenant_id": "creactis",
+            "source_app": "crane-intelligence",
+            "processing_policy": KNOWLEDGE_BASE_PROCESSING_POLICY,
+            "context": {
+                "knowledge": {
+                    "asset_id": "CRN-01",
+                    "document_type": "manual",
+                }
+            },
+        },
+        {
+            "tenant_id": "creactis",
+            "project_id": "crane-demo",
+            "source_app": "crane-intelligence",
+            "processing_policy": KNOWLEDGE_BASE_PROCESSING_POLICY,
+        },
+    ],
+)
+def test_knowledge_base_upload_requires_its_scope_and_metadata(
+    updates: dict[str, object],
+) -> None:
+    with pytest.raises(ValidationError):
+        UploadUrlRequest.model_validate(valid_payload(**updates))
+
+
+def test_knowledge_context_requires_knowledge_base_policy() -> None:
+    with pytest.raises(ValidationError):
+        UploadUrlRequest.model_validate(
+            valid_payload(
+                context={
+                    "knowledge": {
+                        "asset_id": "CRN-01",
+                        "document_type": "manual",
+                    }
+                }
+            )
+        )
+
+
+def test_knowledge_retrieve_contract_normalizes_query() -> None:
+    request = KnowledgeRetrieveRequest.model_validate(
+        {
+            "query": "  What manual  describes   the hoist? ",
+            "asset_id": "CRN-01",
+            "component_id": "hoist",
+        }
+    )
+
+    assert request.query == "What manual describes the hoist?"
+    assert request.max_results == 5
 
 
 def test_valid_pdf_request() -> None:
