@@ -711,7 +711,7 @@ Resources:
               - !Ref CraneIntelligenceDocumentClientSecret
           AWS_LWA_PORT: "8000"
           KNOWLEDGE_BASE_ID: !Ref CraneKnowledgeBase
-          KNOWLEDGE_BASE_DATA_SOURCE_ID: !Ref CraneKnowledgeDataSource
+          KNOWLEDGE_BASE_DATA_SOURCE_ID: !GetAtt CraneKnowledgeDataSource.DataSourceId
           KNOWLEDGE_BASE_REGION: !Ref AWS::Region
           AWS_LWA_READINESS_CHECK_PATH: /health
           AWS_LWA_ENABLE_COMPRESSION: "true"
