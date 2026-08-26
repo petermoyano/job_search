@@ -68,6 +68,10 @@ Parameters:
     Type: String
     Default: cohere.embed-multilingual-v3
     Description: In-region Bedrock embedding model used by the Crane Intelligence knowledge base.
+  CraneKnowledgeBaseName:
+    Type: String
+    Default: job-search-crane-rag-v2
+    Description: Versioned Bedrock Knowledge Base name, changed deliberately when replacement is required.
   JobSearchTenantId:
     Type: String
     Default: job-search
@@ -279,7 +283,7 @@ Resources:
       - CraneKnowledgeVectorIndex
       - CraneKnowledgeBaseExecutionRole
     Properties:
-      Name: job-search-crane-rag
+      Name: !Ref CraneKnowledgeBaseName
       Description: Retrieval knowledge base for Crane Intelligence documents.
       RoleArn: !GetAtt CraneKnowledgeBaseExecutionRole.Arn
       KnowledgeBaseConfiguration:
