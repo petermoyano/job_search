@@ -200,6 +200,10 @@ Resources:
       DataType: float32
       Dimension: 1024
       DistanceMetric: cosine
+      MetadataConfiguration:
+        NonFilterableMetadataKeys:
+          - AMAZON_BEDROCK_TEXT
+          - AMAZON_BEDROCK_METADATA
       Tags:
         - Key: Application
           Value: job-search
