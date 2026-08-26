@@ -53,6 +53,12 @@ class Settings(BaseSettings):
     knowledge_base_region: str = "sa-east-1"
     knowledge_base_connect_timeout_seconds: int = Field(default=5, gt=0)
     knowledge_base_read_timeout_seconds: int = Field(default=30, gt=0)
+    crane_chat_model_id: str = "mistral.ministral-3-3b-instruct"
+    crane_chat_bedrock_region: str = "sa-east-1"
+    crane_chat_max_input_characters: int = Field(default=60_000, gt=0)
+    crane_chat_max_output_tokens: int = Field(default=700, ge=64, le=2_048)
+    crane_chat_connect_timeout_seconds: int = Field(default=5, gt=0)
+    crane_chat_read_timeout_seconds: int = Field(default=45, gt=0)
     document_client_secret_ids: str = ""
     document_client_keys_json: str | None = Field(default=None, repr=False)
     document_auth_cache_ttl_seconds: int = 300
