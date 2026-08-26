@@ -549,7 +549,7 @@ Resources:
           RESUME_PROCESSING_MODEL_ID: !Ref ResumeProcessingModelId
           RESUME_PROCESSING_BEDROCK_REGION: !Ref AWS::Region
           KNOWLEDGE_BASE_ID: !Ref CraneKnowledgeBase
-          KNOWLEDGE_BASE_DATA_SOURCE_ID: !Ref CraneKnowledgeDataSource
+          KNOWLEDGE_BASE_DATA_SOURCE_ID: !GetAtt CraneKnowledgeDataSource.DataSourceId
           KNOWLEDGE_BASE_REGION: !Ref AWS::Region
           RESUME_MIN_EXTRACTED_CHARACTERS: !Ref ResumeMinExtractedCharacters
           RESUME_MAX_MODEL_INPUT_CHARACTERS: !Ref ResumeMaxModelInputCharacters
@@ -632,7 +632,7 @@ Resources:
           DATABASE_URL_SSM_PARAMETER: !Ref DatabaseUrlParameterName
           INITIALIZE_DATABASE: "false"
           KNOWLEDGE_BASE_ID: !Ref CraneKnowledgeBase
-          KNOWLEDGE_BASE_DATA_SOURCE_ID: !Ref CraneKnowledgeDataSource
+          KNOWLEDGE_BASE_DATA_SOURCE_ID: !GetAtt CraneKnowledgeDataSource.DataSourceId
           KNOWLEDGE_BASE_REGION: !Ref AWS::Region
       Tags:
         - Key: Application
