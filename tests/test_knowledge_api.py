@@ -161,6 +161,7 @@ def test_retrieve_returns_only_authorized_rag_citations() -> None:
             headers=CRANE_HEADERS,
             json={
                 "query": "¿Cómo inspecciono el freno?",
+                "document_id": str(authorized_document_id),
                 "project_id": "project-1",
                 "max_results": 5,
             },
@@ -193,6 +194,12 @@ def test_retrieve_returns_only_authorized_rag_citations() -> None:
                         }
                     },
                     {"in": {"key": "tenant_id", "value": ["creactis"]}},
+                    {
+                        "equals": {
+                            "key": "document_id",
+                            "value": str(authorized_document_id),
+                        }
+                    },
                     {"equals": {"key": "project_id", "value": "project-1"}},
                 ]
             },

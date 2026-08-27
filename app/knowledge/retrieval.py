@@ -240,6 +240,7 @@ def _build_metadata_filter(
         },
     ]
     for key, value in (
+        ("document_id", str(payload.document_id) if payload.document_id else None),
         ("project_id", payload.project_id),
         ("asset_id", payload.asset_id),
         ("component_id", payload.component_id),
