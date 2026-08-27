@@ -51,6 +51,7 @@ class KnowledgeRetrieveRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     query: str = Field(min_length=2, max_length=2_000)
+    document_id: UUID | None = None
     project_id: str | None = Field(
         default=None, min_length=1, max_length=64, pattern=SCOPE_PATTERN
     )
