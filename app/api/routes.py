@@ -70,6 +70,7 @@ from app.radar.persistence import (
     list_profile_opportunities,
     load_suppressed_keys,
     persist_discovery_result,
+    soft_delete_opportunity,
     upsert_feedback,
 )
 
@@ -114,7 +115,9 @@ def save_radar_profile_config(
         db.commit()
         return document
     except ProfileRevisionConflictError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -266,6 +269,51 @@ def save_radar_feedback(
         bool(payload.notes),
     )
     return feedback
+
+
+@router.delete(
+    "/radar/opportunities/{opportunity_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def soft_delete_radar_opportunity(
+    opportunity_id: str,
+    profile_id: str = Query(...),
+    db: Session = Depends(get_db),
+) -> None:
+    try:
+        get_effective_profile(db, profile_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    opportunity = db.get(RadarOpportunity, opportunity_id)
+    if opportunity is None:
+        raise HTTPException(status_code=404, detail="Radar opportunity not found")
+
+    evaluated_for_profile = db.scalars(
+        select(RadarEvaluation)
+        .join(RadarRun, RadarRun.id == RadarEvaluation.run_id)
+        .where(
+            RadarEvaluation.opportunity_id == opportunity_id,
+            RadarRun.profile_id == profile_id,
+        )
+    ).first()
+    if evaluated_for_profile is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Opportunity was not evaluated for this radar profile",
+        )
+
+    deletion = soft_delete_opportunity(
+        db, opportunity=opportunity, profile_id=profile_id
+    )
+    db.commit()
+    LOGGER.info(
+        "event=radar_opportunity_soft_deleted opportunity_id=%s profile_id=%s "
+        "deleted_at=%s",
+        opportunity_id,
+        profile_id,
+        deletion.deleted_at.isoformat(),
+    )
 
 
 @router.post(
@@ -460,9 +508,12 @@ def _radar_connectors_for(source: str):
         return [TavilyConnector()]
     if source == "configured":
         return [
-            HimalayasConnector(), WeWorkRemotelyConnector(),
-            RemoteOkConnector(), JobspressoConnector(),
-            RandstadArgentinaConnector(), TavilyConnector(),
+            HimalayasConnector(),
+            WeWorkRemotelyConnector(),
+            RemoteOkConnector(),
+            JobspressoConnector(),
+            RandstadArgentinaConnector(),
+            TavilyConnector(),
         ]
     raise HTTPException(status_code=400, detail=f"Unsupported radar source: {source}")
 

@@ -26,7 +26,9 @@ def _source(source_id: str, label: str, domain: str) -> SearchSource:
 
 
 def _failed_criterion(item, criterion: str) -> bool:
-    classification = classify_candidate(normalize_discovery(item), ROMINA_REMOTE_SPANISH_HR)
+    classification = classify_candidate(
+        normalize_discovery(item), ROMINA_REMOTE_SPANISH_HR
+    )
     return any(
         check.criterion == criterion and check.status == EligibilityStatus.failed
         for check in classification.eligibility_checks
@@ -90,7 +92,7 @@ def test_randstad_rejects_non_mendoza_and_accepts_mendoza_hybrid(monkeypatch) ->
         normalize_discovery(mendoza_hybrid), ROMINA_REMOTE_SPANISH_HR
     )
     assert mendoza_classification.eligible is True
-    assert mendoza_classification.facts.hiring_scope == "mendoza_hybrid"
+    assert mendoza_classification.facts.hiring_scope == "allowed_hybrid_location"
     assert mendoza_classification.facts.application_url == "https://apply.example/1003"
     assert str(mendoza_hybrid.url).endswith("/trabajos/hrbp_godoy-cruz_1003/")
 
