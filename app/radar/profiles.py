@@ -224,6 +224,11 @@ ROMINA_ORDERED_SOURCES = [
         id="upwork", label="Upwork", domains=["upwork.com"], order=25, enabled=False
     ),
 ]
+# Keep the configured source order while allowing a useful sample from each source.
+ROMINA_ORDERED_SOURCES = [
+    source.model_copy(update={"max_results": 4}) for source in ROMINA_ORDERED_SOURCES
+]
+
 
 ROMINA_EXCLUDED_SOURCE_DOMAINS = [
     "wikipedia.org",
@@ -415,7 +420,7 @@ PETER_ORDERED_SOURCES = [
         label="Himalayas",
         domains=["himalayas.app"],
         order=1,
-        max_results=2,
+        max_results=4,
         acquisition_mode=AcquisitionMode.himalayas_api,
         attribution_url="https://himalayas.app",
     ),
@@ -424,7 +429,7 @@ PETER_ORDERED_SOURCES = [
         label="We Work Remotely",
         domains=["weworkremotely.com"],
         order=2,
-        max_results=2,
+        max_results=4,
         acquisition_mode=AcquisitionMode.we_work_remotely_rss,
         attribution_url="https://weworkremotely.com",
     ),
@@ -433,7 +438,7 @@ PETER_ORDERED_SOURCES = [
         label="Remote OK",
         domains=["remoteok.com"],
         order=3,
-        max_results=2,
+        max_results=4,
         acquisition_mode=AcquisitionMode.remote_ok_api,
         attribution_url="https://remoteok.com",
     ),
@@ -442,7 +447,7 @@ PETER_ORDERED_SOURCES = [
         label="Jobspresso",
         domains=["jobspresso.co"],
         order=4,
-        max_results=2,
+        max_results=4,
         acquisition_mode=AcquisitionMode.jobspresso_wp_rest,
         attribution_url="https://jobspresso.co",
     ),
@@ -451,7 +456,7 @@ PETER_ORDERED_SOURCES = [
         label="Get on Board",
         domains=["getonbrd.com"],
         order=5,
-        max_results=2,
+        max_results=4,
         attribution_url="https://www.getonbrd.com",
     ),
     SearchSource(
@@ -459,7 +464,7 @@ PETER_ORDERED_SOURCES = [
         label="Wellfound",
         domains=["wellfound.com"],
         order=6,
-        max_results=2,
+        max_results=4,
         attribution_url="https://wellfound.com",
     ),
     SearchSource(
@@ -467,7 +472,7 @@ PETER_ORDERED_SOURCES = [
         label="Jobgether",
         domains=["jobgether.com"],
         order=7,
-        max_results=2,
+        max_results=4,
         attribution_url="https://jobgether.com",
     ),
     SearchSource(
@@ -475,7 +480,7 @@ PETER_ORDERED_SOURCES = [
         label="Remotive",
         domains=["remotive.com"],
         order=8,
-        max_results=2,
+        max_results=4,
         attribution_url="https://remotive.com",
     ),
     SearchSource(
@@ -483,7 +488,7 @@ PETER_ORDERED_SOURCES = [
         label="Working Nomads",
         domains=["workingnomads.com"],
         order=9,
-        max_results=2,
+        max_results=4,
         attribution_url="https://www.workingnomads.com",
     ),
     SearchSource(
@@ -491,7 +496,7 @@ PETER_ORDERED_SOURCES = [
         label="Greenhouse careers",
         domains=["boards.greenhouse.io"],
         order=10,
-        max_results=2,
+        max_results=4,
         attribution_url="https://boards.greenhouse.io",
     ),
     SearchSource(
@@ -499,7 +504,7 @@ PETER_ORDERED_SOURCES = [
         label="Lever careers",
         domains=["jobs.lever.co"],
         order=11,
-        max_results=2,
+        max_results=4,
         attribution_url="https://jobs.lever.co",
     ),
     SearchSource(
@@ -507,7 +512,7 @@ PETER_ORDERED_SOURCES = [
         label="Ashby careers",
         domains=["jobs.ashbyhq.com"],
         order=12,
-        max_results=2,
+        max_results=4,
         attribution_url="https://jobs.ashbyhq.com",
     ),
 ]
