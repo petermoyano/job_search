@@ -9,6 +9,7 @@ from app.models import (
     RadarEvaluation,
     RadarFeedback,
     RadarOpportunity,
+    RadarOpportunityDeletion,
     RadarRun,
     now_utc,
 )
@@ -17,7 +18,7 @@ from app.radar.models import ClassifiedDiscovery, DiscoveryRunResult, SearchProf
 from app.schemas import RadarFeedbackUpsert
 
 
-CLASSIFIER_VERSION = "romina-eligibility-v2-structured-sources"
+CLASSIFIER_VERSION = "profile-eligibility-v3-structured-sources"
 LOGGER = logging.getLogger(__name__)
 
 
@@ -38,14 +39,26 @@ def load_suppressed_keys(db: Session, profile_id: str) -> set[str]:
         )
     ).all()
     keys: set[str] = set()
-    for identity_key, canonical_url in rows:
+    deleted_rows = db.execute(
+        select(
+            RadarOpportunity.identity_key,
+            RadarOpportunity.canonical_url,
+        )
+        .join(
+            RadarOpportunityDeletion,
+            RadarOpportunityDeletion.opportunity_id == RadarOpportunity.id,
+        )
+        .where(RadarOpportunityDeletion.profile_id == profile_id)
+    ).all()
+    for identity_key, canonical_url in [*rows, *deleted_rows]:
         keys.add(identity_key)
         keys.add(f"url:{canonical_url}")
     LOGGER.info(
         "event=radar_suppression_keys_loaded profile_id=%s presented_rows=%s "
-        "suppression_keys=%s",
+        "deleted_rows=%s suppression_keys=%s",
         profile_id,
         len(rows),
+        len(deleted_rows),
         len(keys),
     )
     return keys
@@ -162,6 +175,25 @@ def upsert_feedback(
     return feedback
 
 
+def soft_delete_opportunity(
+    db: Session, *, opportunity: RadarOpportunity, profile_id: str
+) -> RadarOpportunityDeletion:
+    deletion = db.scalars(
+        select(RadarOpportunityDeletion).where(
+            RadarOpportunityDeletion.opportunity_id == opportunity.id,
+            RadarOpportunityDeletion.profile_id == profile_id,
+        )
+    ).first()
+    if deletion is None:
+        deletion = RadarOpportunityDeletion(
+            opportunity_id=opportunity.id,
+            profile_id=profile_id,
+        )
+        db.add(deletion)
+    db.flush()
+    return deletion
+
+
 def list_profile_opportunities(
     db: Session,
     *,
@@ -176,7 +208,15 @@ def list_profile_opportunities(
             RadarOpportunity,
             RadarOpportunity.id == RadarEvaluation.opportunity_id,
         )
-        .where(RadarRun.profile_id == profile_id)
+        .outerjoin(
+            RadarOpportunityDeletion,
+            (RadarOpportunityDeletion.opportunity_id == RadarOpportunity.id)
+            & (RadarOpportunityDeletion.profile_id == profile_id),
+        )
+        .where(
+            RadarRun.profile_id == profile_id,
+            RadarOpportunityDeletion.id.is_(None),
+        )
         .order_by(desc(RadarEvaluation.created_at))
     )
     if not include_excluded:

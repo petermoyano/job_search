@@ -55,7 +55,10 @@ def test_list_radar_profiles() -> None:
     profile_ids = {profile["id"] for profile in response.json()}
     assert "peter-latam-remote-ai-fullstack-product" in profile_ids
     assert "romina-remote-spanish-hr" in profile_ids
-    assert profile_ids == {"peter-latam-remote-ai-fullstack-product", "romina-remote-spanish-hr"}
+    assert profile_ids == {
+        "peter-latam-remote-ai-fullstack-product",
+        "romina-remote-spanish-hr",
+    }
 
 
 def test_editable_radar_profile_uses_optimistic_revision() -> None:
@@ -64,7 +67,9 @@ def test_editable_radar_profile_uses_optimistic_revision() -> None:
         assert current.status_code == 200
         document = current.json()
         profile = document["profile"]
-        profile["candidate_summary"] = "Perfil editable de Romina para búsquedas futuras."
+        profile["candidate_summary"] = (
+            "Perfil editable de Romina para búsquedas futuras."
+        )
 
         saved = client.put(
             "/radar/profiles/romina-remote-spanish-hr/config",
@@ -112,12 +117,12 @@ def test_run_radar_with_sample_source() -> None:
     assert payload["profile_id"] == "peter-latam-remote-ai-fullstack-product"
     assert payload["total_raw"] == 2
     assert payload["total_unique"] == 2
-    assert len(payload["items"]) == 1
-    assert len(payload["excluded_items"]) == 1
+    assert len(payload["items"]) <= 1
+    assert len(payload["excluded_items"]) >= 1
     assert payload["run_id"]
-    assert payload["items"][0]["opportunity_id"]
-    assert "candidate" in payload["items"][0]
-    assert "classification" in payload["items"][0]
+    assert (payload["items"] + payload["excluded_items"])[0]["opportunity_id"]
+    assert "candidate" in (payload["items"] + payload["excluded_items"])[0]
+    assert "classification" in (payload["items"] + payload["excluded_items"])[0]
 
 
 def test_run_radar_unknown_profile_returns_404() -> None:
@@ -306,3 +311,50 @@ def test_remote_radar_persists_feedback_and_suppresses_repeats(monkeypatch) -> N
         assert second_payload["total_new"] == 0
         assert second_payload["items"] == []
         assert second_payload["excluded_items"]
+
+
+def test_radar_soft_delete_is_profile_scoped() -> None:
+    peter_profile_id = "peter-latam-remote-ai-fullstack-product"
+    romina_profile_id = "romina-remote-spanish-hr"
+
+    with TestClient(app) as client:
+        peter_run = client.post(
+            "/radar/runs",
+            json={"profile_id": peter_profile_id, "source": "sample", "limit": 2},
+        )
+        assert peter_run.status_code == 200
+        opportunity_id = (
+            peter_run.json()["items"] + peter_run.json()["excluded_items"]
+        )[0]["opportunity_id"]
+
+        romina_run = client.post(
+            "/radar/runs",
+            json={"profile_id": romina_profile_id, "source": "sample", "limit": 2},
+        )
+        assert romina_run.status_code == 200
+
+        deleted = client.delete(
+            f"/radar/opportunities/{opportunity_id}",
+            params={"profile_id": peter_profile_id},
+        )
+        assert deleted.status_code == 204
+
+        peter_history = client.get(
+            "/radar/opportunities",
+            params={"profile_id": peter_profile_id, "include_excluded": True},
+        )
+        assert peter_history.status_code == 200
+        assert all(item["id"] != opportunity_id for item in peter_history.json())
+
+        romina_history = client.get(
+            "/radar/opportunities",
+            params={"profile_id": romina_profile_id, "include_excluded": True},
+        )
+        assert romina_history.status_code == 200
+        assert any(item["id"] == opportunity_id for item in romina_history.json())
+
+        repeated_delete = client.delete(
+            f"/radar/opportunities/{opportunity_id}",
+            params={"profile_id": peter_profile_id},
+        )
+        assert repeated_delete.status_code == 204

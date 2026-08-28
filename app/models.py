@@ -300,6 +300,9 @@ class RadarOpportunity(Base, TimestampMixin):
     feedback_entries: Mapped[list["RadarFeedback"]] = relationship(
         back_populates="opportunity", cascade="all, delete-orphan"
     )
+    deletions: Mapped[list["RadarOpportunityDeletion"]] = relationship(
+        back_populates="opportunity", cascade="all, delete-orphan"
+    )
 
 
 class RadarEvaluation(Base, TimestampMixin):
@@ -364,6 +367,28 @@ class RadarFeedback(Base, TimestampMixin):
     opportunity: Mapped[RadarOpportunity] = relationship(
         back_populates="feedback_entries"
     )
+
+
+class RadarOpportunityDeletion(Base, TimestampMixin):
+    __tablename__ = "radar_opportunity_deletions"
+    __table_args__ = (
+        UniqueConstraint(
+            "opportunity_id",
+            "profile_id",
+            name="uq_radar_opportunity_deletions_opportunity_profile",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    opportunity_id: Mapped[str] = mapped_column(
+        ForeignKey("radar_opportunities.id"), nullable=False, index=True
+    )
+    profile_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    deleted_at: Mapped[datetime] = mapped_column(
+        DateTime, default=now_utc, nullable=False
+    )
+
+    opportunity: Mapped["RadarOpportunity"] = relationship(back_populates="deletions")
 
 
 class AppConfig(Base, TimestampMixin):

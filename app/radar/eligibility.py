@@ -246,7 +246,7 @@ def assess_candidate_eligibility(
     work_modality, modality_evidence = _detect_modality(candidate)
     hybrid_location_evidence = _allowed_hybrid_location_evidence(candidate, profile)
     if work_modality == WorkModality.hybrid and hybrid_location_evidence:
-        hiring_scope = "mendoza_hybrid"
+        hiring_scope = "allowed_hybrid_location"
         scope_status = EligibilityStatus.passed
         scope_evidence = hybrid_location_evidence
     else:
@@ -290,7 +290,7 @@ def assess_candidate_eligibility(
             _check(
                 "role",
                 EligibilityStatus.failed,
-                "The title does not match Romina's target HR roles.",
+                "The title does not match this profile's target roles.",
             )
         )
     else:
@@ -328,16 +328,20 @@ def assess_candidate_eligibility(
             modality_reason = "The vacancy is explicitly fully remote."
         elif work_modality == WorkModality.hybrid and hybrid_location_evidence:
             modality_status = EligibilityStatus.passed
-            modality_reason = "The vacancy is hybrid and its onsite location is in Mendoza."
+            modality_reason = "The vacancy is hybrid in an allowed onsite location."
         elif work_modality == WorkModality.hybrid:
             modality_status = EligibilityStatus.failed
-            modality_reason = "The vacancy is hybrid outside the allowed Mendoza locations."
+            modality_reason = (
+                "The vacancy is hybrid outside this profile's allowed onsite locations."
+            )
         elif work_modality == WorkModality.onsite:
             modality_status = EligibilityStatus.failed
             modality_reason = "Onsite-only vacancies are excluded."
         else:
             modality_status = EligibilityStatus.unknown
-            modality_reason = "The remote or Mendoza-hybrid modality could not be verified."
+            modality_reason = (
+                "The remote or allowed-hybrid modality could not be verified."
+            )
         checks.append(
             _check(
                 "work_modality",
@@ -376,7 +380,9 @@ def assess_candidate_eligibility(
             language_reason = "The vacancy description language could not be verified."
         checks.append(_check("description_language", language_status, language_reason))
 
-    required_application_language = policy.required_application_language or ("es" if policy.require_spanish_application else None)
+    required_application_language = policy.required_application_language or (
+        "es" if policy.require_spanish_application else None
+    )
     if required_application_language:
         if application_language == required_application_language:
             application_status = EligibilityStatus.passed
@@ -438,9 +444,7 @@ def assess_candidate_eligibility(
             )
         elif salary_min is not None:
             salary_status = EligibilityStatus.passed
-            salary_reason = (
-                f"The disclosed minimum salary is USD {salary_min}/month and meets the floor."
-            )
+            salary_reason = f"The disclosed minimum salary is USD {salary_min}/month and meets the floor."
         else:
             salary_status = EligibilityStatus.passed
             salary_reason = "No explicit below-floor USD salary was detected."
@@ -693,7 +697,9 @@ def _parse_salary_number(value: str) -> int | None:
     if "." in compact and "," in compact:
         decimal_separator = "." if compact.rfind(".") > compact.rfind(",") else ","
         thousands_separator = "," if decimal_separator == "." else "."
-        compact = compact.replace(thousands_separator, "").replace(decimal_separator, ".")
+        compact = compact.replace(thousands_separator, "").replace(
+            decimal_separator, "."
+        )
     elif re.search(r"[.,]\d{3}$", compact):
         compact = compact.replace(".", "").replace(",", "")
     else:
@@ -739,9 +745,7 @@ def _detect_usd_monthly_salary(
         ]
         if part
     )
-    matches = list(
-        re.finditer(r"(?i)(?:USD|US\$|U\$S)\s*([0-9][0-9.,]*)", text)
-    )
+    matches = list(re.finditer(r"(?i)(?:USD|US\$|U\$S)\s*([0-9][0-9.,]*)", text))
     monthly_values: list[int] = []
     evidence: list[str] = []
     for match in matches:
@@ -765,18 +769,29 @@ def _detect_usd_monthly_salary(
             ],
         ):
             continue
-        if _hits(normalized_context, ["hora", "hour", "diario", "daily", "por día", "por dia"]):
+        if _hits(
+            normalized_context,
+            ["hora", "hour", "diario", "daily", "por día", "por dia"],
+        ):
             continue
-        if _hits(normalized_context, ["anual", "annual", "per year", "por año", "por ano"]):
+        if _hits(
+            normalized_context, ["anual", "annual", "per year", "por año", "por ano"]
+        ):
             amount = round(amount / 12)
-        elif not _hits(normalized_context, ["mensual", "monthly", "per month", "por mes"]):
+        elif not _hits(
+            normalized_context, ["mensual", "monthly", "per month", "por mes"]
+        ):
             if amount > 10000:
                 continue
         monthly_values.append(amount)
         evidence.append(" ".join(context.split()))
     if not monthly_values:
         return None, None, None
-    return " | ".join(dict.fromkeys(evidence))[:500], min(monthly_values), max(monthly_values)
+    return (
+        " | ".join(dict.fromkeys(evidence))[:500],
+        min(monthly_values),
+        max(monthly_values),
+    )
 
 
 def _detect_application_language(
@@ -886,10 +901,7 @@ def _detect_activity(
         closed_hits.append(f"provider status: {provider_status}")
     if closed_hits:
         return JobActivityStatus.closed, closed_hits
-    if (
-        provider_status == "active"
-        and candidate.metadata.get("application_url")
-    ):
+    if provider_status == "active" and candidate.metadata.get("application_url"):
         return JobActivityStatus.open, ["provider: active application URL"]
     apply_hits = [
         *_hits(normalized, SPANISH_APPLY_TERMS),

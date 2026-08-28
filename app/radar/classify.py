@@ -44,8 +44,9 @@ def classify_candidate(
             reasons=[reason],
             negative_signals=[reason],
             facts=RadarJobFacts(
-                source_domain=(urlsplit(candidate.canonical_url).hostname or "")
-                .removeprefix("www."),
+                source_domain=(
+                    urlsplit(candidate.canonical_url).hostname or ""
+                ).removeprefix("www."),
                 application_url=str(
                     candidate.metadata.get("application_url") or candidate.canonical_url
                 ),
@@ -162,7 +163,7 @@ def _verdict_for_score(score: int, negative: list[str]) -> RadarVerdict:
         for item in negative
         for label in [
             "required english",
-            "not local to mendoza",
+            "not allowed hybrid location",
             "staffing",
             "intermediary",
             "us-only",
