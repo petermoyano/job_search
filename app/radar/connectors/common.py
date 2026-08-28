@@ -6,6 +6,7 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from app.radar.models import SearchProfile
 from app.services.text import compact_text, normalize_for_matching
 
 
@@ -77,23 +78,20 @@ def title_may_match_profile(title: str, target_roles: list[str]) -> bool:
         for role in target_roles
     ):
         return True
-    broad_terms = [
-        "human resources",
-        "recursos humanos",
-        "people partner",
-        "people operations",
-        "people experience",
-        "talent acquisition",
-        "recruiter",
-        "reclutador",
-        "reclutadora",
-        "seleccion",
-        "adquisicion de talento",
-        "gestion de talento",
-        "capital humano",
-        "employee experience",
-        "employer branding",
-        "organizational development",
-    ]
-    return any(term in normalized_title for term in broad_terms)
+    return False
+
+
+def profile_search_terms(profile: SearchProfile, *, limit: int = 5) -> list[str]:
+    """Return a small, profile-owned set of terms for source-specific searches."""
+    terms: list[str] = []
+    seen: set[str] = set()
+    for role in profile.target_roles:
+        normalized = normalize_for_matching(role)
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        terms.append(role)
+        if len(terms) >= limit:
+            break
+    return terms
 

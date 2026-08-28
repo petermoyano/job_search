@@ -170,7 +170,7 @@ def list_profile_opportunities(
     limit: int,
 ) -> list[dict]:
     statement = (
-        select(RadarEvaluation, RadarOpportunity)
+        select(RadarEvaluation, RadarOpportunity, RadarRun)
         .join(RadarRun, RadarRun.id == RadarEvaluation.run_id)
         .join(
             RadarOpportunity,
@@ -185,7 +185,7 @@ def list_profile_opportunities(
     rows = db.execute(statement).all()
     output: list[dict] = []
     seen: set[str] = set()
-    for evaluation, opportunity in rows:
+    for evaluation, opportunity, run in rows:
         if opportunity.id in seen:
             continue
         seen.add(opportunity.id)
@@ -198,6 +198,10 @@ def list_profile_opportunities(
         output.append(
             {
                 "id": opportunity.id,
+                "profile_id": run.profile_id,
+                "run_id": run.id,
+                "profile_version": run.profile_version,
+                "evaluated_at": evaluation.created_at,
                 "canonical_url": opportunity.canonical_url,
                 "source_kind": opportunity.source_kind,
                 "source_domain": opportunity.source_domain,
@@ -205,7 +209,7 @@ def list_profile_opportunities(
                 "title": opportunity.title,
                 "company_name": opportunity.company_name,
                 "location_text": opportunity.location_text,
-                "facts": opportunity.facts,
+                "facts": evaluation.facts,
                 "first_seen_at": opportunity.first_seen_at,
                 "last_seen_at": opportunity.last_seen_at,
                 "last_presented_at": opportunity.last_presented_at,

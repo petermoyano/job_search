@@ -135,11 +135,7 @@ def run_radar(
         LOGGER.warning("Radar API request rejected: profile_id=%s", payload.profile_id)
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    suppressed_keys = (
-        load_suppressed_keys(db, profile.id)
-        if profile.eligibility_policy is not None
-        else set()
-    )
+    suppressed_keys = load_suppressed_keys(db, profile.id)
     connectors = _radar_connectors_for(payload.source)
     try:
         result = run_discovery(

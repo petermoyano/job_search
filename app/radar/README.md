@@ -174,7 +174,7 @@ quality can be inspected and improved without showing noisy results to Romina.
 Run the deterministic sample source:
 
 ```bash
-uv run python -m app.radar --profile romina-mendoza-hr-onsite-hybrid --source sample
+uv run python -m app.radar --profile peter-latam-remote-ai-fullstack-product --source sample
 ```
 
 Run Romina's live remote search after configuring `TAVILY_API_KEY`:

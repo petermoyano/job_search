@@ -4,7 +4,12 @@ from datetime import datetime, timezone
 from urllib.parse import urlencode
 
 from app.radar.connectors.base import DiscoveryConnector
-from app.radar.connectors.common import get_json, html_to_text, title_may_match_profile
+from app.radar.connectors.common import (
+    get_json,
+    html_to_text,
+    profile_search_terms,
+    title_may_match_profile,
+)
 from app.radar.models import (
     DiscoverySourceKind,
     RawDiscovery,
@@ -14,15 +19,6 @@ from app.radar.models import (
 
 
 HIMALAYAS_SEARCH_URL = "https://himalayas.app/jobs/api/search"
-ROLE_QUERIES = (
-    "HR Business Partner",
-    "Talent Acquisition",
-    "IT Recruiter",
-    "People Partner",
-    "Human Resources",
-)
-
-
 class HimalayasConnector(DiscoveryConnector):
     name = "himalayas"
     source_ids = frozenset({"himalayas"})
@@ -41,7 +37,7 @@ class HimalayasConnector(DiscoveryConnector):
     ) -> list[RawDiscovery]:
         discoveries: list[RawDiscovery] = []
         seen: set[str] = set()
-        for query in ROLE_QUERIES:
+        for query in profile_search_terms(profile):
             if len(discoveries) >= limit:
                 break
             params = {
