@@ -25,6 +25,7 @@ TAVILY_SEARCH_URL = "https://api.tavily.com/search"
 LOGGER = logging.getLogger(__name__)
 CURATED_RESULT_SHARE = 0.8
 DOMAIN_BATCH_SIZE = 5
+MAX_QUERY_CHARACTERS = 400
 
 
 @dataclass(frozen=True)
@@ -174,7 +175,7 @@ def _build_source_search_plan(
     budgets = _allocate_budget(limit, len(profile.queries))
     return [
         _SearchRequest(
-            query=query,
+            query=_provider_query(profile, query),
             max_results=min(profile.max_results_per_query, budget),
             lane=f"source:{source.id}",
             include_domains=tuple(source.domains),
@@ -207,7 +208,9 @@ def _build_search_plan(profile: SearchProfile, limit: int) -> list[_SearchReques
     batch_budgets = _allocate_budget(curated_budget, len(domain_batches))
     plan = [
         _SearchRequest(
-            query=profile.queries[index % len(profile.queries)],
+            query=_provider_query(
+                profile, profile.queries[index % len(profile.queries)]
+            ),
             max_results=min(profile.max_results_per_query, budget),
             lane="curated",
             include_domains=tuple(domain_batch),
@@ -222,13 +225,43 @@ def _build_search_plan(profile: SearchProfile, limit: int) -> list[_SearchReques
     if exploratory_budget > 0:
         plan.append(
             _SearchRequest(
-                query=profile.queries[len(plan) % len(profile.queries)],
+                query=_provider_query(
+                    profile, profile.queries[len(plan) % len(profile.queries)]
+                ),
                 max_results=min(profile.max_results_per_query, exploratory_budget),
                 lane="exploratory",
                 exclude_domains=tuple(profile.excluded_source_domains),
             )
         )
     return plan
+
+
+def _provider_query(profile: SearchProfile, query: SearchQuery) -> SearchQuery:
+    """Keep stored profile queries expressive without exceeding provider-safe size."""
+    if len(query.text) <= MAX_QUERY_CHARACTERS:
+        return query
+
+    tier_titles = [
+        title
+        for tier in profile.role_tiers
+        if query.role_tier is None or tier.tier == query.role_tier
+        for title in tier.titles
+    ]
+    titles = tier_titles or profile.target_roles
+    context = [*profile.required_terms[:2], *profile.preferred_terms[:2]]
+    role_terms: list[str] = []
+    for title in titles:
+        candidate_terms = [*role_terms, f'"{title}"']
+        candidate = f"({' OR '.join(candidate_terms)}) {' '.join(context)}".strip()
+        if len(candidate) > MAX_QUERY_CHARACTERS:
+            break
+        role_terms = candidate_terms
+
+    if role_terms:
+        text = f"({' OR '.join(role_terms)}) {' '.join(context)}".strip()
+    else:
+        text = query.text[:MAX_QUERY_CHARACTERS].rsplit(" ", 1)[0]
+    return query.model_copy(update={"text": text})
 
 
 def _domain_batches(domains: list[str]) -> list[list[str]]:
@@ -270,10 +303,15 @@ def _is_absolute_http_url(value: str) -> bool:
 
 
 def _post_json(url: str, payload: dict) -> dict:
+    api_key = payload.get("api_key")
+    body = {key: value for key, value in payload.items() if key != "api_key"}
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
     request = Request(
         url,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        data=json.dumps(body).encode("utf-8"),
+        headers=headers,
         method="POST",
     )
     try:

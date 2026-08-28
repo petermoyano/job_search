@@ -34,7 +34,7 @@ def run_discovery(
     hydrate: bool = True,
 ) -> DiscoveryRunResult:
     suppressed = suppressed_keys or set()
-    if profile.ordered_sources:
+    if profile.ordered_sources and not _is_sample_run(connectors):
         return _run_ordered_discovery(
             profile=profile,
             connectors=connectors,
@@ -49,6 +49,10 @@ def run_discovery(
         suppressed_keys=suppressed,
         hydrate=hydrate,
     )
+
+
+def _is_sample_run(connectors: list[DiscoveryConnector]) -> bool:
+    return len(connectors) == 1 and connectors[0].name == "sample"
 
 
 def _run_ordered_discovery(
@@ -135,7 +139,9 @@ def _run_ordered_discovery(
                         "source_label": source.label,
                         "acquisition_mode": source.acquisition_mode.value,
                         "source_attribution_url": (
-                            str(source.attribution_url) if source.attribution_url else None
+                            str(source.attribution_url)
+                            if source.attribution_url
+                            else None
                         ),
                     }
                 }
@@ -279,7 +285,6 @@ def _run_connector_discovery(
     )
 
 
-
 def _connector_for_source(
     connectors: list[DiscoveryConnector], source: SearchSource
 ) -> DiscoveryConnector | None:
@@ -290,7 +295,11 @@ def _connector_for_source(
     if exact is not None:
         return exact
     fallback = next(
-        (connector for connector in connectors if connector.handles_unregistered_sources),
+        (
+            connector
+            for connector in connectors
+            if connector.handles_unregistered_sources
+        ),
         None,
     )
     if fallback is not None:
@@ -301,6 +310,7 @@ def _connector_for_source(
 def _provider_error_code(exc: RuntimeError) -> str:
     value = str(exc).partition(":")[0].strip()
     return value or "provider_error"
+
 
 def _classify_raw_batch(
     *,

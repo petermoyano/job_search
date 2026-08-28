@@ -409,6 +409,109 @@ ENGLISH_REQUIRED_GROUP = ScoringGroup(
         "nivel avanzado de inglés",
     ],
 )
+PETER_ORDERED_SOURCES = [
+    SearchSource(
+        id="himalayas",
+        label="Himalayas",
+        domains=["himalayas.app"],
+        order=1,
+        max_results=2,
+        acquisition_mode=AcquisitionMode.himalayas_api,
+        attribution_url="https://himalayas.app",
+    ),
+    SearchSource(
+        id="we_work_remotely",
+        label="We Work Remotely",
+        domains=["weworkremotely.com"],
+        order=2,
+        max_results=2,
+        acquisition_mode=AcquisitionMode.we_work_remotely_rss,
+        attribution_url="https://weworkremotely.com",
+    ),
+    SearchSource(
+        id="remote_ok",
+        label="Remote OK",
+        domains=["remoteok.com"],
+        order=3,
+        max_results=2,
+        acquisition_mode=AcquisitionMode.remote_ok_api,
+        attribution_url="https://remoteok.com",
+    ),
+    SearchSource(
+        id="jobspresso",
+        label="Jobspresso",
+        domains=["jobspresso.co"],
+        order=4,
+        max_results=2,
+        acquisition_mode=AcquisitionMode.jobspresso_wp_rest,
+        attribution_url="https://jobspresso.co",
+    ),
+    SearchSource(
+        id="getonbrd",
+        label="Get on Board",
+        domains=["getonbrd.com"],
+        order=5,
+        max_results=2,
+        attribution_url="https://www.getonbrd.com",
+    ),
+    SearchSource(
+        id="wellfound",
+        label="Wellfound",
+        domains=["wellfound.com"],
+        order=6,
+        max_results=2,
+        attribution_url="https://wellfound.com",
+    ),
+    SearchSource(
+        id="jobgether",
+        label="Jobgether",
+        domains=["jobgether.com"],
+        order=7,
+        max_results=2,
+        attribution_url="https://jobgether.com",
+    ),
+    SearchSource(
+        id="remotive",
+        label="Remotive",
+        domains=["remotive.com"],
+        order=8,
+        max_results=2,
+        attribution_url="https://remotive.com",
+    ),
+    SearchSource(
+        id="working_nomads",
+        label="Working Nomads",
+        domains=["workingnomads.com"],
+        order=9,
+        max_results=2,
+        attribution_url="https://www.workingnomads.com",
+    ),
+    SearchSource(
+        id="greenhouse",
+        label="Greenhouse careers",
+        domains=["boards.greenhouse.io"],
+        order=10,
+        max_results=2,
+        attribution_url="https://boards.greenhouse.io",
+    ),
+    SearchSource(
+        id="lever",
+        label="Lever careers",
+        domains=["jobs.lever.co"],
+        order=11,
+        max_results=2,
+        attribution_url="https://jobs.lever.co",
+    ),
+    SearchSource(
+        id="ashby",
+        label="Ashby careers",
+        domains=["jobs.ashbyhq.com"],
+        order=12,
+        max_results=2,
+        attribution_url="https://jobs.ashbyhq.com",
+    ),
+]
+
 
 PETER_REMOTE_AI_FULLSTACK_PRODUCT = SearchProfile(
     id="peter-latam-remote-ai-fullstack-product",
@@ -563,6 +666,15 @@ PETER_REMOTE_AI_FULLSTACK_PRODUCT = SearchProfile(
             ],
         ),
     ],
+    source_references=[
+        source.attribution_url
+        for source in PETER_ORDERED_SOURCES
+        if source.attribution_url is not None
+    ],
+    preferred_source_domains=[
+        domain for source in PETER_ORDERED_SOURCES for domain in source.domains
+    ],
+    ordered_sources=PETER_ORDERED_SOURCES,
     queries=[
         SearchQuery(
             text='site:jobs.lever.co "AI Engineer" "Remote" "LATAM"',

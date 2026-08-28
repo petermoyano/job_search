@@ -6,7 +6,10 @@ from app.radar.connectors.base import DiscoveryConnector
 from app.radar.connectors.common import title_may_match_profile
 from app.radar.connectors.himalayas import _timestamp
 from app.radar.connectors.sample import SampleConnector
-from app.radar.connectors.tavily import TavilyConnector
+from app.radar.connectors.tavily import (
+    TavilyConnector,
+    _build_source_search_plan,
+)
 from app.radar.discovery import run_discovery
 from app.radar.models import (
     AcquisitionMode,
@@ -20,6 +23,7 @@ from app.radar.models import (
 from app.radar.normalize import canonicalize_url, normalize_discovery
 from app.radar.profile_store import _upgrade_legacy_sources
 from app.radar.profiles import (
+    PETER_ORDERED_SOURCES,
     PETER_REMOTE_AI_FULLSTACK_PRODUCT,
     PETER_US_REMOTE_DIRECT_PRODUCT,
     ROMINA_ORDERED_SOURCES,
@@ -67,6 +71,21 @@ def test_romina_profile_encodes_requested_source_order() -> None:
     ]
     assert [source.order for source in ROMINA_ORDERED_SOURCES] == list(range(1, 26))
     assert all(source.min_qualified_to_stop == 3 for source in enabled)
+
+
+def test_profile_sources_are_balanced_for_variety() -> None:
+    assert len(PETER_ORDERED_SOURCES) == 12
+    assert all(source.max_results == 2 for source in PETER_ORDERED_SOURCES)
+
+
+def test_verbose_role_tier_query_is_compacted_for_provider_source() -> None:
+    source = next(source for source in ROMINA_ORDERED_SOURCES if source.id == "linkedin")
+
+    plan = _build_source_search_plan(ROMINA_REMOTE_SPANISH_HR, source, limit=5)
+
+    assert len(plan) == 3
+    assert all(len(request.query.text) <= 400 for request in plan)
+    assert [request.query.role_tier for request in plan] == [1, 2, 3]
 
 
 def test_legacy_profile_sources_are_upgraded_without_touching_other_fields() -> None:
