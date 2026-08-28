@@ -327,14 +327,17 @@ ROMINA_ROLE_TIERS = [
 HR_TARGET_ROLES = [title for tier in ROMINA_ROLE_TIERS for title in tier.titles]
 
 
-def build_role_tier_queries(role_tiers: list[RoleTier]) -> list[SearchQuery]:
+def build_role_tier_queries(
+    role_tiers: list[RoleTier],
+    *,
+    query_suffix: str = "",
+) -> list[SearchQuery]:
+    suffix = f" ({query_suffix})" if query_suffix else ""
     return [
         SearchQuery(
             role_tier=tier.tier,
             text=(
-                "("
-                + " OR ".join(f'"{title}"' for title in tier.titles)
-                + ") (remoto OR remote OR ((híbrido OR hibrido OR hybrid) Mendoza))"
+                "(" + " OR ".join(f'"{title}"' for title in tier.titles) + ")" + suffix
             ),
             reason=f"Puestos de prioridad Tier {tier.tier} configurados para este perfil.",
         )
@@ -752,7 +755,10 @@ ROMINA_REMOTE_SPANISH_HR = SearchProfile(
     ],
     excluded_source_domains=ROMINA_EXCLUDED_SOURCE_DOMAINS,
     ordered_sources=ROMINA_ORDERED_SOURCES,
-    queries=build_role_tier_queries(ROMINA_ROLE_TIERS),
+    queries=build_role_tier_queries(
+        ROMINA_ROLE_TIERS,
+        query_suffix="remoto OR remote OR ((híbrido OR hibrido OR hybrid) Mendoza)",
+    ),
     max_results_per_query=3,
     max_qualified_results=5,
 )
