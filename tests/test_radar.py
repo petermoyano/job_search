@@ -75,7 +75,7 @@ def test_romina_profile_encodes_requested_source_order() -> None:
 
 def test_profile_sources_are_balanced_for_variety() -> None:
     assert len(PETER_ORDERED_SOURCES) == 12
-    assert all(source.max_results == 2 for source in PETER_ORDERED_SOURCES)
+    assert all(source.max_results == 4 for source in PETER_ORDERED_SOURCES)
 
 
 def test_verbose_role_tier_query_is_compacted_for_provider_source() -> None:
@@ -389,7 +389,7 @@ def test_tavily_runs_tier_queries_for_one_ordered_source(monkeypatch) -> None:
 
     assert len(payloads) == 3
     assert all(payload["include_domains"] == ["linkedin.com"] for payload in payloads)
-    assert sum(payload["max_results"] for payload in payloads) == 5
+    assert sum(payload["max_results"] for payload in payloads) == source.max_results
 
 
 def test_ordered_discovery_blacklist_overrides_an_enabled_source() -> None:
@@ -473,7 +473,9 @@ def _ordered_test_profile(max_results: int):
     return ROMINA_REMOTE_SPANISH_HR.model_copy(
         update={
             "ordered_sources": [
-                source for source in ROMINA_ORDERED_SOURCES if source.id in source_ids
+                source.model_copy(update={"max_results": 5})
+                for source in ROMINA_ORDERED_SOURCES
+                if source.id in source_ids
             ],
             "max_qualified_results": max_results,
         }
