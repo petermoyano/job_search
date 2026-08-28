@@ -55,7 +55,7 @@ def test_list_radar_profiles() -> None:
     profile_ids = {profile["id"] for profile in response.json()}
     assert "peter-latam-remote-ai-fullstack-product" in profile_ids
     assert "romina-remote-spanish-hr" in profile_ids
-    assert "romina-mendoza-hr-onsite-hybrid" in profile_ids
+    assert profile_ids == {"peter-latam-remote-ai-fullstack-product", "romina-remote-spanish-hr"}
 
 
 def test_editable_radar_profile_uses_optimistic_revision() -> None:
@@ -101,7 +101,7 @@ def test_run_radar_with_sample_source() -> None:
         response = client.post(
             "/radar/runs",
             json={
-                "profile_id": "romina-mendoza-hr-onsite-hybrid",
+                "profile_id": "peter-latam-remote-ai-fullstack-product",
                 "source": "sample",
                 "limit": 2,
             },
@@ -109,10 +109,11 @@ def test_run_radar_with_sample_source() -> None:
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["profile_id"] == "romina-mendoza-hr-onsite-hybrid"
+    assert payload["profile_id"] == "peter-latam-remote-ai-fullstack-product"
     assert payload["total_raw"] == 2
     assert payload["total_unique"] == 2
-    assert len(payload["items"]) == 2
+    assert len(payload["items"]) == 1
+    assert len(payload["excluded_items"]) == 1
     assert payload["run_id"]
     assert payload["items"][0]["opportunity_id"]
     assert "candidate" in payload["items"][0]
@@ -294,6 +295,9 @@ def test_remote_radar_persists_feedback_and_suppresses_repeats(monkeypatch) -> N
         )
         assert history.status_code == 200
         matching = [item for item in history.json() if item["id"] == opportunity_id]
+        assert matching[0]["profile_id"] == "romina-remote-spanish-hr"
+        assert matching[0]["run_id"] == first_payload["run_id"]
+        assert matching[0]["evaluated_at"]
         assert matching[0]["feedback"]["action"] == "not_relevant"
 
         second = client.post("/radar/runs", json=request)

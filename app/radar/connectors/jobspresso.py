@@ -4,7 +4,12 @@ from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlencode, urlsplit
 
 from app.radar.connectors.base import DiscoveryConnector
-from app.radar.connectors.common import get_json, html_to_text, title_may_match_profile
+from app.radar.connectors.common import (
+    get_json,
+    html_to_text,
+    profile_search_terms,
+    title_may_match_profile,
+)
 from app.radar.models import (
     DiscoverySourceKind,
     RawDiscovery,
@@ -18,14 +23,6 @@ JOBSPRESSO_API_URL = "https://jobspresso.co/wp-json/wp/v2/job-listings"
 JOBSPRESSO_FIELDS = "id,date_gmt,link,title,content,meta"
 JOBSPRESSO_TIMEOUT_SECONDS = 55
 JOBSPRESSO_OTHER_ROLES_TYPE_ID = 6
-JOBSPRESSO_SEARCH_TERMS = (
-    "human resources",
-    "talent acquisition",
-    "recruiter",
-    "people partner",
-)
-
-
 class JobspressoConnector(DiscoveryConnector):
     name = "jobspresso"
     source_ids = frozenset({"jobspresso"})
@@ -43,7 +40,10 @@ class JobspressoConnector(DiscoveryConnector):
         self, profile: SearchProfile, source: SearchSource, limit: int
     ) -> list[RawDiscovery]:
         page_size = min(5, max(3, limit))
-        urls = [_search_url(term, page_size) for term in JOBSPRESSO_SEARCH_TERMS]
+        urls = [
+            _search_url(term, page_size)
+            for term in profile_search_terms(profile)
+        ]
         with ThreadPoolExecutor(max_workers=len(urls)) as pool:
             responses = list(pool.map(_fetch_payload, urls))
         payloads = [response for response in responses if isinstance(response, list)]

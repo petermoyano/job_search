@@ -278,6 +278,10 @@ class RadarRunRead(BaseModel):
 
 class RadarOpportunityRead(BaseModel):
     id: str
+    profile_id: str
+    run_id: str
+    profile_version: str
+    evaluated_at: datetime
     canonical_url: str
     source_kind: str
     source_domain: str | None = None

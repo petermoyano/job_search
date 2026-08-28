@@ -3,6 +3,7 @@ from pathlib import Path
 
 from app.radar.classify import classify_candidate
 from app.radar.connectors.base import DiscoveryConnector
+from app.radar.connectors.common import title_may_match_profile
 from app.radar.connectors.himalayas import _timestamp
 from app.radar.connectors.sample import SampleConnector
 from app.radar.connectors.tavily import TavilyConnector
@@ -21,7 +22,6 @@ from app.radar.profile_store import _upgrade_legacy_sources
 from app.radar.profiles import (
     PETER_REMOTE_AI_FULLSTACK_PRODUCT,
     PETER_US_REMOTE_DIRECT_PRODUCT,
-    ROMINA_MENDOZA_HR_ONSITE_HYBRID,
     ROMINA_ORDERED_SOURCES,
     ROMINA_REMOTE_SPANISH_HR,
     get_profile,
@@ -37,11 +37,10 @@ def test_sample_discovery_classifies_promising_and_reject() -> None:
 
     assert result.total_raw == 2
     assert result.total_unique == 2
-    verdicts = {
-        item.candidate.external_id: item.classification.verdict for item in result.items
-    }
-    assert verdicts["sample-promising"] == RadarVerdict.promising
-    assert verdicts["sample-reject"] == RadarVerdict.reject
+    assert [item.candidate.external_id for item in result.items] == ["sample-promising"]
+    assert result.items[0].classification.verdict == RadarVerdict.promising
+    assert [item.candidate.external_id for item in result.excluded_items] == ["sample-reject"]
+    assert result.excluded_items[0].classification.verdict == RadarVerdict.reject
 
 
 def test_profile_selection_includes_peter_and_romina_profiles() -> None:
@@ -49,10 +48,13 @@ def test_profile_selection_includes_peter_and_romina_profiles() -> None:
         PETER_REMOTE_AI_FULLSTACK_PRODUCT
     )
     assert get_profile("romina-remote-spanish-hr") == ROMINA_REMOTE_SPANISH_HR
-    assert get_profile("romina-mendoza-hr-onsite-hybrid") == (
-        ROMINA_MENDOZA_HR_ONSITE_HYBRID
-    )
     assert PETER_US_REMOTE_DIRECT_PRODUCT == PETER_REMOTE_AI_FULLSTACK_PRODUCT
+
+
+def test_title_filters_are_profile_scoped() -> None:
+    assert not title_may_match_profile("Recruiter", PETER_REMOTE_AI_FULLSTACK_PRODUCT.target_roles)
+    assert title_may_match_profile("AI Product Engineer", PETER_REMOTE_AI_FULLSTACK_PRODUCT.target_roles)
+    assert title_may_match_profile("IT Recruiter", ROMINA_REMOTE_SPANISH_HR.target_roles)
 
 
 def test_romina_profile_encodes_requested_source_order() -> None:
@@ -282,37 +284,6 @@ def test_romina_closed_linkedin_phrase_is_rejected_before_fit() -> None:
     assert classification.score == 0
 
 
-def test_romina_mendoza_onsite_hrbp_scores_promising() -> None:
-    classification = _classify_text(
-        ROMINA_MENDOZA_HR_ONSITE_HYBRID,
-        title="HR Business Partner Mendoza",
-        raw_text="""
-        Empresa de Mendoza incorpora HR Business Partner para modalidad híbrido.
-        Responsabilidades de recursos humanos, reclutamiento y selección,
-        onboarding, clima laboral y acompañamiento a líderes en Gran Mendoza.
-        """,
-    )
-
-    assert classification.verdict == RadarVerdict.promising
-    assert classification.score >= 70
-
-
-def test_romina_mendoza_buenos_aires_or_relocation_role_is_rejected() -> None:
-    classification = _classify_text(
-        ROMINA_MENDOZA_HR_ONSITE_HYBRID,
-        title="Analista de Recursos Humanos",
-        raw_text="""
-        Analista de Recursos Humanos para CABA, Buenos Aires. Puesto presencial
-        con relocation required. Tareas de reclutamiento y onboarding.
-        """,
-    )
-
-    assert classification.verdict == RadarVerdict.reject
-    assert any(
-        "not local to Mendoza" in signal for signal in classification.negative_signals
-    )
-
-
 def test_romina_irrelevant_results_are_rejected_before_fit_scoring() -> None:
     fixture_path = Path(__file__).parent / "fixtures" / "romina_irrelevant_results.json"
     fixtures = json.loads(fixture_path.read_text(encoding="utf-8"))
@@ -334,28 +305,6 @@ def test_romina_irrelevant_results_are_rejected_before_fit_scoring() -> None:
         assert classification.is_job_posting is False
 
 
-def test_spanish_matching_is_accent_insensitive() -> None:
-    accented = _classify_text(
-        ROMINA_MENDOZA_HR_ONSITE_HYBRID,
-        title="Analista de Recursos Humanos",
-        raw_text=(
-            "Vacante híbrida en Guaymallén, Mendoza. Responsabilidades de "
-            "reclutamiento y selección, inducción y capacitación."
-        ),
-    )
-    unaccented = _classify_text(
-        ROMINA_MENDOZA_HR_ONSITE_HYBRID,
-        title="Analista de Recursos Humanos",
-        raw_text=(
-            "Vacante hibrida en Guaymallen, Mendoza. Responsabilidades de "
-            "reclutamiento y seleccion, induccion y capacitacion."
-        ),
-    )
-
-    assert accented.score == unaccented.score
-    assert accented.verdict == unaccented.verdict
-
-
 def test_tavily_connector_normalizes_relative_goto_urls(monkeypatch) -> None:
     def fake_post_json(_url, _payload):
         return {
@@ -371,7 +320,7 @@ def test_tavily_connector_normalizes_relative_goto_urls(monkeypatch) -> None:
     monkeypatch.setattr("app.radar.connectors.tavily._post_json", fake_post_json)
 
     discoveries = TavilyConnector(api_key="test-key").discover(
-        ROMINA_MENDOZA_HR_ONSITE_HYBRID, limit=1
+        ROMINA_REMOTE_SPANISH_HR, limit=1
     )
 
     assert len(discoveries) == 1
@@ -394,7 +343,7 @@ def test_tavily_connector_skips_invalid_relative_urls(monkeypatch) -> None:
     monkeypatch.setattr("app.radar.connectors.tavily._post_json", fake_post_json)
 
     discoveries = TavilyConnector(api_key="test-key").discover(
-        ROMINA_MENDOZA_HR_ONSITE_HYBRID, limit=2
+        ROMINA_REMOTE_SPANISH_HR, limit=2
     )
 
     assert discoveries

@@ -248,15 +248,11 @@ def _run_connector_discovery(
         seen_keys=set(),
         hydrate=hydrate,
     )
-    if profile.eligibility_policy is None:
-        items = classified
-        excluded: list[ClassifiedDiscovery] = []
-    else:
-        items = [
-            item for item in classified if item.classification.eligible and item.is_new
-        ][: profile.max_qualified_results]
-        displayed_ids = {id(item) for item in items}
-        excluded = [item for item in classified if id(item) not in displayed_ids]
+    items = [
+        item for item in classified if item.classification.eligible and item.is_new
+    ][: min(profile.max_qualified_results, limit)]
+    displayed_ids = {id(item) for item in items}
+    excluded = [item for item in classified if id(item) not in displayed_ids]
 
     _sort_classified(items)
     _sort_classified(excluded)
