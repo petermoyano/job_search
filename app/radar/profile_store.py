@@ -31,11 +31,12 @@ def get_effective_profile(db: Session, profile_id: str) -> SearchProfile:
 
 def list_effective_profiles(db: Session) -> list[SearchProfile]:
     stored = {
-        item.profile_id: item
-        for item in db.scalars(select(RadarProfileConfig)).all()
+        item.profile_id: item for item in db.scalars(select(RadarProfileConfig)).all()
     }
     return [
-        SearchProfile.model_validate(_upgrade_legacy_sources(stored[profile_id].profile_json))
+        SearchProfile.model_validate(
+            _upgrade_legacy_sources(stored[profile_id].profile_json)
+        )
         if profile_id in stored
         else profile
         for profile_id, profile in PROFILES.items()
@@ -48,7 +49,9 @@ def get_profile_document(db: Session, profile_id: str) -> SearchProfileDocument:
     if stored is None:
         return SearchProfileDocument(profile=fallback, revision=0, persisted=False)
     return SearchProfileDocument(
-        profile=SearchProfile.model_validate(_upgrade_legacy_sources(stored.profile_json)),
+        profile=SearchProfile.model_validate(
+            _upgrade_legacy_sources(stored.profile_json)
+        ),
         revision=stored.revision,
         persisted=True,
     )
@@ -189,7 +192,13 @@ def _normalize_profile(
             and domain.strip().casefold().removeprefix("www.") not in excluded_domains
         )
     )
-    queries = build_role_tier_queries(profile.role_tiers) if profile.role_tiers else profile.queries
+    queries = (
+        build_role_tier_queries(
+            profile.role_tiers, query_suffix=" OR ".join(profile.required_terms)
+        )
+        if profile.role_tiers
+        else profile.queries
+    )
     return profile.model_copy(
         update={
             "id": fallback.id,
