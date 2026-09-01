@@ -22,6 +22,11 @@ from app.radar.models import (
     SearchProfileUpdateRequest,
 )
 from app.radar.quality import dispatch_pending_quality_review_outbox
+from app.radar.search_intelligence import (
+    SearchRunReview,
+    run_search_run_review,
+)
+
 from app.radar.profile_store import (
     ProfileRevisionConflictError,
     get_effective_profile,
@@ -57,6 +62,7 @@ from app.schemas import (
     JobAnalysisRequest,
     JobLeadCreate,
     JobLeadRead,
+    SearchRunReviewRequest,
     RadarFeedbackRead,
     RadarFeedbackUpsert,
     RadarOpportunityRead,
@@ -72,6 +78,7 @@ from app.radar.persistence import (
     load_suppressed_keys,
     persist_discovery_result,
     soft_delete_opportunity,
+    load_search_run_review_snapshot,
     upsert_feedback,
 )
 
@@ -221,6 +228,47 @@ def list_radar_runs(
         len(runs),
     )
     return runs
+
+
+@router.post(
+    "/radar/runs/{run_id}/search-review",
+    response_model=SearchRunReview,
+)
+def review_radar_run(
+    run_id: str,
+    payload: SearchRunReviewRequest,
+    db: Session = Depends(get_db),
+) -> SearchRunReview:
+    snapshot = load_search_run_review_snapshot(
+        db,
+        run_id=run_id,
+        profile_id=payload.profile_id,
+    )
+    if snapshot is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Radar run not found for this profile",
+        )
+    try:
+        review = run_search_run_review(snapshot)
+    except Exception as exc:
+        LOGGER.exception(
+            "event=search_run_review_failed run_id=%s profile_id=%s",
+            run_id,
+            payload.profile_id,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="Search review could not be completed",
+        ) from exc
+    LOGGER.info(
+        "event=search_run_review_completed run_id=%s profile_id=%s score=%s assessment=%s",
+        run_id,
+        payload.profile_id,
+        review.alignment_score,
+        review.assessment,
+    )
+    return review
 
 
 @router.get("/radar/opportunities", response_model=list[RadarOpportunityRead])

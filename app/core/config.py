@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     radar_quality_review_bedrock_region: str = "sa-east-1"
     radar_quality_review_connect_timeout_seconds: int = Field(default=5, gt=0)
     radar_quality_review_read_timeout_seconds: int = Field(default=45, gt=0)
+    radar_search_review_model_id: str = "mistral.ministral-3-14b-instruct"
+    radar_search_review_bedrock_region: str = "sa-east-1"
+    radar_search_review_connect_timeout_seconds: int = Field(default=5, gt=0)
+    radar_search_review_read_timeout_seconds: int = Field(default=45, gt=0)
+    radar_search_review_max_output_tokens: int = Field(default=900, ge=128, le=2_048)
     radar_quality_review_lease_seconds: int = Field(default=300, gt=0)
     radar_quality_review_outbox_batch_size: int = Field(default=25, ge=1, le=100)
     resume_processing_model_id: str = "mistral.ministral-3-14b-instruct"

@@ -305,6 +305,10 @@ class RadarRunRequest(BaseModel):
     enable_quality_review: bool = True
 
 
+class SearchRunReviewRequest(BaseModel):
+    profile_id: str
+
+
 class ScoringConfigRead(BaseModel):
     default_weights: dict[str, float]
     supported_deal_breakers: list[str]

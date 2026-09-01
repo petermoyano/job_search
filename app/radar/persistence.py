@@ -326,6 +326,67 @@ def list_profile_opportunities(
     return output
 
 
+def load_search_run_review_snapshot(
+    db: Session, *, run_id: str, profile_id: str
+) -> dict | None:
+    run = db.get(RadarRun, run_id)
+    if run is None or run.profile_id != profile_id:
+        return None
+
+    rows = db.execute(
+        select(RadarEvaluation, RadarOpportunity)
+        .join(
+            RadarOpportunity,
+            RadarOpportunity.id == RadarEvaluation.opportunity_id,
+        )
+        .where(RadarEvaluation.run_id == run.id)
+        .order_by(desc(RadarEvaluation.score), RadarEvaluation.created_at)
+    ).all()
+    opportunities = [
+        {
+            "id": opportunity.id,
+            "title": opportunity.title,
+            "company_name": opportunity.company_name,
+            "location_text": opportunity.location_text,
+            "source_kind": opportunity.source_kind,
+            "source_domain": opportunity.source_domain,
+            "evaluation": {
+                "verdict": evaluation.verdict,
+                "eligible": evaluation.eligible,
+                "is_new": evaluation.is_new,
+                "presented": evaluation.presented,
+                "score": evaluation.score,
+                "role_tier": evaluation.role_tier,
+                "facts": evaluation.facts,
+                "eligibility_checks": evaluation.eligibility_checks,
+                "reasons": evaluation.reasons[:5],
+                "positive_signals": evaluation.positive_signals[:5],
+                "negative_signals": evaluation.negative_signals[:5],
+            },
+        }
+        for evaluation, opportunity in rows[:50]
+    ]
+    return {
+        "profile": run.profile_snapshot,
+        "run": {
+            "id": run.id,
+            "profile_id": run.profile_id,
+            "profile_version": run.profile_version,
+            "connector": run.connector,
+            "requested_limit": run.requested_limit,
+            "totals": {
+                "raw": run.total_raw,
+                "unique": run.total_unique,
+                "qualified": run.total_qualified,
+                "new": run.total_new,
+                "excluded": run.total_excluded,
+            },
+            "source_summaries": run.source_summaries,
+        },
+        "opportunities": opportunities,
+    }
+
+
 def _upsert_opportunity(
     db: Session,
     item: ClassifiedDiscovery,

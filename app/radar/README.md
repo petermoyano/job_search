@@ -224,3 +224,24 @@ Run tests and lint:
 uv run pytest
 uv run ruff check app migrations tests
 ```
+
+
+## Search Run Review
+
+The UI can explicitly request a transient review of one completed Radar run by
+posting the profile ID to /radar/runs/{run_id}/search-review. The result is a
+structured SearchRunReview with an alignment score, assessment, summary,
+strengths, gaps, recommendations, and evidence.
+
+This is a developer-facing, pay-per-use feature. It reads the immutable profile
+snapshot, source summaries, and deterministic evaluations from the existing run,
+then calls Bedrock through the langchain-aws ChatBedrockConverse adapter. The
+result is not persisted and there is no queue, worker, or scheduler.
+
+Optional settings:
+
+- RADAR_SEARCH_REVIEW_MODEL_ID
+- RADAR_SEARCH_REVIEW_BEDROCK_REGION
+- RADAR_SEARCH_REVIEW_CONNECT_TIMEOUT_SECONDS
+- RADAR_SEARCH_REVIEW_READ_TIMEOUT_SECONDS
+- RADAR_SEARCH_REVIEW_MAX_OUTPUT_TOKENS

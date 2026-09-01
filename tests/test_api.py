@@ -358,3 +358,59 @@ def test_radar_soft_delete_is_profile_scoped() -> None:
             params={"profile_id": peter_profile_id},
         )
         assert repeated_delete.status_code == 204
+
+
+def test_search_run_review_reads_one_persisted_run_without_writing(monkeypatch) -> None:
+    from app.radar.search_intelligence import (
+        SearchRunReview,
+        SearchRunReviewEvidence,
+    )
+
+    observed_snapshots = []
+
+    def fake_review(snapshot):
+        observed_snapshots.append(snapshot)
+        return SearchRunReview(
+            alignment_score=74,
+            assessment="mixed",
+            summary="The run found one matching role but source coverage remained narrow.",
+            strengths=["The presented result passed deterministic eligibility checks."],
+            gaps=["Only one source produced a qualified result."],
+            recommendations=["Compare qualified rates across the configured sources."],
+            evidence=[
+                SearchRunReviewEvidence(
+                    source="run_summary",
+                    detail="The saved run totals show one qualified opportunity.",
+                )
+            ],
+        )
+
+    monkeypatch.setattr("app.api.routes.run_search_run_review", fake_review)
+    profile_id = "peter-latam-remote-ai-fullstack-product"
+
+    with TestClient(app) as client:
+        run_response = client.post(
+            "/radar/runs",
+            json={
+                "profile_id": profile_id,
+                "source": "sample",
+                "limit": 2,
+                "enable_quality_review": False,
+            },
+        )
+        assert run_response.status_code == 200
+        run_id = run_response.json()["run_id"]
+
+        response = client.post(
+            f"/radar/runs/{run_id}/search-review",
+            json={"profile_id": profile_id},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["alignment_score"] == 74
+    assert response.json()["assessment"] == "mixed"
+    assert len(observed_snapshots) == 1
+    snapshot = observed_snapshots[0]
+    assert snapshot["run"]["id"] == run_id
+    assert snapshot["profile"]["id"] == profile_id
+    assert snapshot["opportunities"]
