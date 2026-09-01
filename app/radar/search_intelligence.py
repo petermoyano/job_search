@@ -76,11 +76,34 @@ class BedrockSearchIntelligenceModel:
             ]
         )
         try:
-            return SearchRunReview.model_validate_json(_response_text(response.content))
+            return _parse_search_run_review_response(response.content)
         except ValueError as exc:
             raise RuntimeError(
                 "Bedrock search review did not return valid JSON"
             ) from exc
+
+
+def _parse_search_run_review_response(content: Any) -> SearchRunReview:
+    response = json.loads(_response_text(content))
+    if not isinstance(response, dict):
+        raise ValueError("Search review response must be a JSON object")
+    for field, maximum in (("strengths", 4), ("gaps", 4), ("recommendations", 4)):
+        values = response.get(field)
+        if isinstance(values, list):
+            response[field] = values[:maximum]
+    evidence = response.get("evidence")
+    if isinstance(evidence, list):
+        response["evidence"] = [
+            _normalize_search_run_review_evidence(item) for item in evidence[:6]
+        ]
+    return SearchRunReview.model_validate(response)
+
+
+def _normalize_search_run_review_evidence(evidence: Any) -> Any:
+    source = evidence.get("source") if isinstance(evidence, dict) else None
+    if isinstance(source, str) and source.lower().strip() in {"query", "queries"}:
+        return {**evidence, "source": "profile"}
+    return evidence
 
 
 _SEARCH_RUN_REVIEW_SYSTEM_PROMPT = """You are a cautious search-intelligence reviewer.

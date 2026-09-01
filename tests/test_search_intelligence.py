@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.radar.search_intelligence import (
     SearchRunReview,
     SearchRunReviewEvidence,
+    _parse_search_run_review_response,
     run_search_run_review,
 )
 
@@ -53,3 +54,18 @@ def test_search_run_review_graph_rejects_incomplete_input() -> None:
         assert str(exc) == "Search run review input is incomplete"
     else:
         raise AssertionError("Expected incomplete search review input to fail")
+
+
+def test_search_run_review_response_bounds_lists_and_normalizes_queries() -> None:
+    review = _parse_search_run_review_response(
+        (
+            '{"alignment_score":82,"assessment":"strong",'
+            '"summary":"The configured strategy aligns with the candidate profile.",'
+            '"strengths":[],"gaps":[],'
+            '"recommendations":["one","two","three","four","five"],'
+            '"evidence":[{"source":"queries",'
+            '"detail":"The configured query targets the candidate profile."}]}'
+        )
+    )
+    assert len(review.recommendations) == 4
+    assert review.evidence[0].source == "profile"
