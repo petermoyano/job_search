@@ -100,11 +100,22 @@ class BedrockQualityReviewEvaluator:
             if isinstance(block, dict)
         )
         try:
-            return QualityReviewDecision.model_validate_json(_json_response_text(text))
+            return _parse_quality_review_response(text)
         except ValueError as exc:
             raise RuntimeError(
                 "Bedrock quality review did not return valid JSON"
             ) from exc
+
+
+def _parse_quality_review_response(text: str) -> QualityReviewDecision:
+    response = json.loads(_json_response_text(text))
+    if not isinstance(response, dict):
+        raise ValueError("Quality review response must be a JSON object")
+    for field, maximum in (("rationale", 4), ("risks", 4), ("evidence", 5)):
+        values = response.get(field)
+        if isinstance(values, list):
+            response[field] = values[:maximum]
+    return QualityReviewDecision.model_validate(response)
 
 
 def _json_response_text(text: str) -> str:
