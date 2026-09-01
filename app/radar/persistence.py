@@ -75,6 +75,7 @@ def persist_discovery_result(
     profile: SearchProfile,
     connector: str,
     requested_limit: int,
+    stage_quality_reviews: bool = True,
 ) -> RadarRun:
     run = RadarRun(
         profile_id=profile.id,
@@ -127,13 +128,15 @@ def persist_discovery_result(
                 classifier_version=CLASSIFIER_VERSION,
             )
         )
-    staged_quality_reviews = stage_presented_quality_reviews(
-        db,
-        run=run,
-        profile=profile,
-        presented_items=presented_pairs,
-        rubric_version=get_settings().radar_quality_review_rubric_version,
-    )
+    staged_quality_reviews = 0
+    if stage_quality_reviews:
+        staged_quality_reviews = stage_presented_quality_reviews(
+            db,
+            run=run,
+            profile=profile,
+            presented_items=presented_pairs,
+            rubric_version=get_settings().radar_quality_review_rubric_version,
+        )
     LOGGER.info(
         "event=radar_run_staged run_id=%s profile_id=%s connector=%s "
         "presented=%s excluded=%s evaluations=%s",

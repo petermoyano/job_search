@@ -302,6 +302,7 @@ class RadarRunRequest(BaseModel):
     profile_id: str
     source: Literal["sample", "configured", "tavily"] = "configured"
     limit: int = Field(default=25, ge=1, le=50)
+    enable_quality_review: bool = True
 
 
 class ScoringConfigRead(BaseModel):

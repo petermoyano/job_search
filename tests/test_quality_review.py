@@ -99,3 +99,49 @@ def test_only_presented_opportunities_stage_quality_reviews() -> None:
     assert len(reviews) == 1
     assert reviews[0].input_snapshot["evaluation"]["eligible"] is True
     assert len(outbox_events) == 1
+
+
+def test_quality_reviews_can_be_disabled_per_run() -> None:
+    from app.db.base import Base
+    from app.db.session import SessionLocal, engine
+    from app.models import RadarQualityReview, RadarQualityReviewOutbox
+    from app.radar.connectors.sample import SampleConnector
+    from app.radar.discovery import run_discovery
+    from app.radar.persistence import persist_discovery_result
+    from app.radar.profiles import PETER_REMOTE_AI_FULLSTACK_PRODUCT
+
+    Base.metadata.create_all(bind=engine)
+    profile = PETER_REMOTE_AI_FULLSTACK_PRODUCT.model_copy(
+        update={
+            "id": "quality-review-disabled-test-profile",
+            "version": "quality-review-disabled-test-v1",
+        }
+    )
+    result = run_discovery(profile=profile, connectors=[SampleConnector()], limit=2)
+
+    with SessionLocal() as db:
+        persist_discovery_result(
+            db,
+            result=result,
+            profile=profile,
+            connector="sample",
+            requested_limit=2,
+            stage_quality_reviews=False,
+        )
+        db.commit()
+        reviews = list(
+            db.query(RadarQualityReview)
+            .filter(RadarQualityReview.profile_id == profile.id)
+            .all()
+        )
+        outbox_events = list(
+            db.query(RadarQualityReviewOutbox)
+            .join(RadarQualityReview)
+            .filter(RadarQualityReview.profile_id == profile.id)
+            .all()
+        )
+
+    assert len(result.items) == 1
+    assert len(result.excluded_items) == 1
+    assert reviews == []
+    assert outbox_events == []

@@ -99,7 +99,8 @@ Content-Type: application/json
 {
   "profile_id": "romina-remote-spanish-hr",
   "source": "tavily",
-  "limit": 25
+  "limit": 25,
+  "enable_quality_review": true
 }
 ```
 
@@ -152,9 +153,10 @@ Supported actions are `interested`, `not_relevant`, and `applied`.
 
 ## Quality Review Worker
 
-Every new result that is persisted with presented=true receives exactly one
-versioned quality review for the configured rubric. Rejects, unverified
-maybes, repeats, and overflow results never receive a review event.
+When enable_quality_review is true (the default), every new result that is
+persisted with presented=true receives exactly one versioned quality review for
+the configured rubric. Rejects, unverified maybes, repeats, and overflow
+results never receive a review event.
 
 The API writes the review and a matching outbox record in the same database
 transaction. After the Radar run commits, it makes a best-effort delivery of

@@ -128,10 +128,11 @@ def run_radar(
     payload: RadarRunRequest, db: Session = Depends(get_db)
 ) -> DiscoveryRunResult:
     LOGGER.info(
-        "Radar API request received: profile_id=%s source=%s limit=%s",
+        "Radar API request received: profile_id=%s source=%s limit=%s quality_review=%s",
         payload.profile_id,
         payload.source,
         payload.limit,
+        payload.enable_quality_review,
     )
     try:
         profile = get_effective_profile(db, payload.profile_id)
@@ -160,6 +161,7 @@ def run_radar(
         profile=profile,
         connector=payload.source,
         requested_limit=payload.limit,
+        stage_quality_reviews=payload.enable_quality_review,
     )
     db.commit()
     try:
