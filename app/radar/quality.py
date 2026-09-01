@@ -100,11 +100,24 @@ class BedrockQualityReviewEvaluator:
             if isinstance(block, dict)
         )
         try:
-            return QualityReviewDecision.model_validate_json(text)
+            return QualityReviewDecision.model_validate_json(_json_response_text(text))
         except ValueError as exc:
             raise RuntimeError(
                 "Bedrock quality review did not return valid JSON"
             ) from exc
+
+
+def _json_response_text(text: str) -> str:
+    """Remove an optional Markdown code fence from a JSON-only model response."""
+    candidate = text.strip()
+    fence = "```"
+    if not (candidate.startswith(fence) and candidate.endswith(fence)):
+        return candidate
+
+    candidate = candidate[len(fence) : -len(fence)].strip()
+    if candidate.lower().startswith("json"):
+        candidate = candidate[4:].lstrip()
+    return candidate
 
 
 _QUALITY_REVIEW_SYSTEM_PROMPT = """You are a cautious job-opportunity quality reviewer.

@@ -524,6 +524,14 @@ Resources:
                 Action: bedrock:InvokeModel
                 Resource: !Sub >-
                   arn:${AWS::Partition}:bedrock:${AWS::Region}::foundation-model/${CraneChatModelId}
+        - PolicyName: GenerateRadarSearchReview
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: bedrock:InvokeModel
+                Resource: !Sub >-
+                  arn:${AWS::Partition}:bedrock:${AWS::Region}::foundation-model/${RadarQualityReviewModelId}
       Tags:
         - Key: Application
           Value: job-search
