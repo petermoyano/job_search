@@ -303,6 +303,9 @@ class RadarOpportunity(Base, TimestampMixin):
     deletions: Mapped[list["RadarOpportunityDeletion"]] = relationship(
         back_populates="opportunity", cascade="all, delete-orphan"
     )
+    quality_reviews: Mapped[list["RadarQualityReview"]] = relationship(
+        back_populates="opportunity", cascade="all, delete-orphan"
+    )
 
 
 class RadarEvaluation(Base, TimestampMixin):
@@ -389,6 +392,68 @@ class RadarOpportunityDeletion(Base, TimestampMixin):
     )
 
     opportunity: Mapped["RadarOpportunity"] = relationship(back_populates="deletions")
+
+
+class RadarQualityReview(Base, TimestampMixin):
+    """A versioned, persisted quality judgement for a presented opportunity."""
+
+    __tablename__ = "radar_quality_reviews"
+    __table_args__ = (
+        UniqueConstraint(
+            "opportunity_id",
+            "profile_id",
+            "rubric_version",
+            name="uq_radar_quality_review_opportunity_profile_rubric",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    opportunity_id: Mapped[str] = mapped_column(
+        ForeignKey("radar_opportunities.id"), nullable=False, index=True
+    )
+    profile_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("radar_runs.id"), nullable=False, index=True
+    )
+    rubric_version: Mapped[str] = mapped_column(String(100), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), default="pending", nullable=False)
+    verdict: Mapped[str | None] = mapped_column(String(10))
+    quality_score: Mapped[int | None] = mapped_column(Integer)
+    confidence: Mapped[float | None] = mapped_column(Float)
+    rationale: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    risks: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    evidence: Mapped[list[dict]] = mapped_column(JSON, default=list, nullable=False)
+    input_snapshot: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    last_error: Mapped[str | None] = mapped_column(Text)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    opportunity: Mapped[RadarOpportunity] = relationship(
+        back_populates="quality_reviews"
+    )
+    outbox_events: Mapped[list["RadarQualityReviewOutbox"]] = relationship(
+        back_populates="review", cascade="all, delete-orphan"
+    )
+
+
+class RadarQualityReviewOutbox(Base, TimestampMixin):
+    """Durable SQS delivery intent, written with the review record."""
+
+    __tablename__ = "radar_quality_review_outbox"
+    __table_args__ = (
+        UniqueConstraint("review_id", name="uq_radar_quality_review_outbox_review"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    review_id: Mapped[str] = mapped_column(
+        ForeignKey("radar_quality_reviews.id"), nullable=False, index=True
+    )
+    status: Mapped[str] = mapped_column(String(30), default="pending", nullable=False)
+    delivery_attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime)
+    last_error: Mapped[str | None] = mapped_column(Text)
+
+    review: Mapped[RadarQualityReview] = relationship(back_populates="outbox_events")
 
 
 class AppConfig(Base, TimestampMixin):

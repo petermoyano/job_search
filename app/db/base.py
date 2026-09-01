@@ -17,6 +17,8 @@ from app.models import (  # noqa: F401
     RadarFeedback,
     RadarOpportunity,
     RadarOpportunityDeletion,
+    RadarQualityReview,
+    RadarQualityReviewOutbox,
     RadarRun,
     ScoreBreakdown,
     User,

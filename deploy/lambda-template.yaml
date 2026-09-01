@@ -8,6 +8,13 @@ Parameters:
   WorkerImageUri:
     Type: String
     Description: Immutable ECR image URI for the document processing worker.
+  QualityReviewWorkerImageUri:
+    Type: String
+    Description: Immutable ECR image URI for the Radar quality-review worker and dispatcher.
+  RadarQualityReviewModelId:
+    Type: String
+    Default: mistral.ministral-3-14b-instruct
+    Description: In-region Bedrock model used by the Radar quality reviewer.
   FrontendOrigin:
     Type: String
     Default: https://job-search-fe.vercel.app
@@ -121,6 +128,28 @@ Resources:
         - Key: BoundedContext
           Value: knowledge
 
+  QualityReviewWorkerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/job-search-quality-review-worker
+      RetentionInDays: 14
+      Tags:
+        - Key: Application
+          Value: job-search
+        - Key: BoundedContext
+          Value: radar
+
+  QualityReviewDispatcherLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/job-search-quality-review-dispatcher
+      RetentionInDays: 14
+      Tags:
+        - Key: Application
+          Value: job-search
+        - Key: BoundedContext
+          Value: radar
+
   DocumentBucket:
     Type: AWS::S3::Bucket
     DeletionPolicy: Retain
@@ -139,7 +168,7 @@ Resources:
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
       VersioningConfiguration:
-        Status: Enabled
+        Status: Suspended
       LifecycleConfiguration:
         Rules:
           - Id: RemoveIncompleteMultipartUploads
@@ -357,6 +386,40 @@ Resources:
         - Key: QueueRole
           Value: processing
 
+  QualityReviewDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      SqsManagedSseEnabled: true
+      MessageRetentionPeriod: 1209600
+      Tags:
+        - Key: Application
+          Value: job-search
+        - Key: BoundedContext
+          Value: radar
+        - Key: QueueRole
+          Value: quality-review-dead-letter
+
+  QualityReviewQueue:
+    Type: AWS::SQS::Queue
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      SqsManagedSseEnabled: true
+      MessageRetentionPeriod: 345600
+      VisibilityTimeout: 360
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt QualityReviewDeadLetterQueue.Arn
+        maxReceiveCount: 3
+      Tags:
+        - Key: Application
+          Value: job-search
+        - Key: BoundedContext
+          Value: radar
+        - Key: QueueRole
+          Value: quality-review
+
   JobSearchDocumentClientSecret:
     Type: AWS::SecretsManager::Secret
     DeletionPolicy: Retain
@@ -439,6 +502,13 @@ Resources:
                 Effect: Allow
                 Action: sqs:SendMessage
                 Resource: !GetAtt DocumentProcessingQueue.Arn
+        - PolicyName: SendQualityReviewMessage
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: sqs:SendMessage
+                Resource: !GetAtt QualityReviewQueue.Arn
         - PolicyName: RetrieveCraneKnowledge
           PolicyDocument:
             Version: "2012-10-17"
@@ -457,6 +527,87 @@ Resources:
       Tags:
         - Key: Application
           Value: job-search
+
+  QualityReviewWorkerExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: job-search-quality-review-worker
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ReadDatabaseUrlParameter
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub >-
+                  arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${DatabaseUrlParameterName}
+        - PolicyName: ConsumeQualityReviewQueue
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                Resource: !GetAtt QualityReviewQueue.Arn
+        - PolicyName: InvokeQualityReviewModel
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: bedrock:InvokeModel
+                Resource: !Sub >-
+                  arn:${AWS::Partition}:bedrock:${AWS::Region}::foundation-model/${RadarQualityReviewModelId}
+      Tags:
+        - Key: Application
+          Value: job-search
+        - Key: BoundedContext
+          Value: radar
+
+  QualityReviewDispatcherExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: job-search-quality-review-dispatcher
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ReadDatabaseUrlParameter
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub >-
+                  arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${DatabaseUrlParameterName}
+        - PolicyName: DispatchQualityReviewMessages
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: sqs:SendMessage
+                Resource: !GetAtt QualityReviewQueue.Arn
+      Tags:
+        - Key: Application
+          Value: job-search
+        - Key: BoundedContext
+          Value: radar
 
   DocumentProcessingExecutionRole:
     Type: AWS::IAM::Role
@@ -669,6 +820,92 @@ Resources:
       Principal: events.amazonaws.com
       SourceArn: !GetAtt KnowledgeSyncSchedule.Arn
 
+  QualityReviewWorkerFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: QualityReviewWorkerLogGroup
+    Properties:
+      FunctionName: job-search-quality-review-worker
+      Description: SQS consumer for bounded Radar opportunity quality reviews.
+      PackageType: Image
+      Code:
+        ImageUri: !Ref QualityReviewWorkerImageUri
+      Role: !GetAtt QualityReviewWorkerExecutionRole.Arn
+      Architectures:
+        - x86_64
+      MemorySize: 512
+      Timeout: 120
+      Environment:
+        Variables:
+          APP_ENV: production
+          DATABASE_URL_SSM_PARAMETER: !Ref DatabaseUrlParameterName
+          INITIALIZE_DATABASE: "false"
+          RADAR_QUALITY_REVIEW_MODEL_ID: !Ref RadarQualityReviewModelId
+          RADAR_QUALITY_REVIEW_BEDROCK_REGION: !Ref AWS::Region
+          RADAR_QUALITY_REVIEW_LEASE_SECONDS: "300"
+      Tags:
+        - Key: Application
+          Value: job-search
+        - Key: BoundedContext
+          Value: radar
+
+  QualityReviewEventSourceMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref QualityReviewWorkerFunction
+      EventSourceArn: !GetAtt QualityReviewQueue.Arn
+      Enabled: true
+      BatchSize: 5
+      MaximumBatchingWindowInSeconds: 0
+      FunctionResponseTypes:
+        - ReportBatchItemFailures
+
+  QualityReviewDispatcherFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: QualityReviewDispatcherLogGroup
+    Properties:
+      FunctionName: job-search-quality-review-dispatcher
+      Description: Retries delivery of pending Radar quality-review outbox events.
+      PackageType: Image
+      Code:
+        ImageUri: !Ref QualityReviewWorkerImageUri
+      ImageConfig:
+        Command:
+          - app.radar.quality.dispatch_handler
+      Role: !GetAtt QualityReviewDispatcherExecutionRole.Arn
+      Architectures:
+        - x86_64
+      MemorySize: 256
+      Timeout: 60
+      Environment:
+        Variables:
+          APP_ENV: production
+          DATABASE_URL_SSM_PARAMETER: !Ref DatabaseUrlParameterName
+          INITIALIZE_DATABASE: "false"
+          RADAR_QUALITY_REVIEW_QUEUE_URL: !Ref QualityReviewQueue
+      Tags:
+        - Key: Application
+          Value: job-search
+        - Key: BoundedContext
+          Value: radar
+
+  QualityReviewOutboxDispatchSchedule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Retries pending Radar quality-review outbox delivery.
+      ScheduleExpression: rate(5 minutes)
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt QualityReviewDispatcherFunction.Arn
+          Id: QualityReviewDispatcherLambda
+
+  QualityReviewOutboxDispatchSchedulePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref QualityReviewDispatcherFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt QualityReviewOutboxDispatchSchedule.Arn
+
   GitHubWorkerDeployPolicy:
     Type: AWS::IAM::Policy
     Properties:
@@ -686,6 +923,8 @@ Resources:
             Resource:
               - !GetAtt DocumentProcessingFunction.Arn
               - !GetAtt KnowledgeSyncFunction.Arn
+              - !GetAtt QualityReviewWorkerFunction.Arn
+              - !GetAtt QualityReviewDispatcherFunction.Arn
 
   BackendFunction:
     Type: AWS::Lambda::Function
@@ -716,6 +955,9 @@ Resources:
           DOCUMENTS_UPLOAD_URL_EXPIRES_SECONDS: !Ref DocumentsUploadUrlExpiresSeconds
           DOCUMENT_PROCESSING_QUEUE_URL: !Ref DocumentProcessingQueue
           DOCUMENT_PROCESSING_LEASE_SECONDS: "300"
+          RADAR_QUALITY_REVIEW_QUEUE_URL: !Ref QualityReviewQueue
+          RADAR_QUALITY_REVIEW_MODEL_ID: !Ref RadarQualityReviewModelId
+          RADAR_QUALITY_REVIEW_BEDROCK_REGION: !Ref AWS::Region
           DOCUMENT_CLIENT_SECRET_IDS: !Join
             - ","
             - - !Ref JobSearchDocumentClientSecret
@@ -819,3 +1061,15 @@ Outputs:
   CraneKnowledgeBaseEmbeddingModelId:
     Description: Bedrock embedding model whose 1024 dimensions match the vector index.
     Value: !Ref CraneKnowledgeBaseEmbeddingModelId
+  QualityReviewQueueUrl:
+    Description: URL of the asynchronous Radar quality-review queue.
+    Value: !Ref QualityReviewQueue
+  QualityReviewDeadLetterQueueUrl:
+    Description: URL of the Radar quality-review dead-letter queue.
+    Value: !Ref QualityReviewDeadLetterQueue
+  QualityReviewWorkerFunctionName:
+    Description: SQS-triggered Lambda that evaluates presented Radar opportunities.
+    Value: !Ref QualityReviewWorkerFunction
+  QualityReviewDispatcherFunctionName:
+    Description: Scheduled Lambda that retries pending quality-review outbox delivery.
+    Value: !Ref QualityReviewDispatcherFunction

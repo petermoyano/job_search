@@ -295,6 +295,7 @@ class RadarOpportunityRead(BaseModel):
     last_presented_at: datetime | None = None
     latest_evaluation: dict[str, Any] | None = None
     feedback: RadarFeedbackRead | None = None
+    quality_review: dict[str, Any] | None = None
 
 
 class RadarRunRequest(BaseModel):

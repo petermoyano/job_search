@@ -39,6 +39,14 @@ class Settings(BaseSettings):
     documents_upload_url_expires_seconds: int = 900
     document_processing_queue_url: str = ""
     document_processing_lease_seconds: int = 300
+    radar_quality_review_queue_url: str = ""
+    radar_quality_review_rubric_version: str = "v1"
+    radar_quality_review_model_id: str = "mistral.ministral-3-14b-instruct"
+    radar_quality_review_bedrock_region: str = "sa-east-1"
+    radar_quality_review_connect_timeout_seconds: int = Field(default=5, gt=0)
+    radar_quality_review_read_timeout_seconds: int = Field(default=45, gt=0)
+    radar_quality_review_lease_seconds: int = Field(default=300, gt=0)
+    radar_quality_review_outbox_batch_size: int = Field(default=25, ge=1, le=100)
     resume_processing_model_id: str = "mistral.ministral-3-14b-instruct"
     resume_processing_bedrock_region: str = "sa-east-1"
     resume_min_extracted_characters: int = Field(default=100, gt=0)

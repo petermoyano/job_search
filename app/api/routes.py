@@ -21,6 +21,7 @@ from app.radar.models import (
     SearchProfileDocument,
     SearchProfileUpdateRequest,
 )
+from app.radar.quality import dispatch_pending_quality_review_outbox
 from app.radar.profile_store import (
     ProfileRevisionConflictError,
     get_effective_profile,
@@ -161,6 +162,13 @@ def run_radar(
         requested_limit=payload.limit,
     )
     db.commit()
+    try:
+        dispatched_quality_reviews = dispatch_pending_quality_review_outbox(db)
+    except Exception:
+        dispatched_quality_reviews = 0
+        LOGGER.exception(
+            "event=quality_review_outbox_dispatch_failed run_id=%s", result.run_id
+        )
     LOGGER.info(
         "event=radar_run_committed run_id=%s profile_id=%s presented=%s "
         "excluded=%s sources_consulted=%s",
@@ -169,6 +177,11 @@ def run_radar(
         len(result.items),
         len(result.excluded_items),
         len(result.source_summaries),
+    )
+    LOGGER.info(
+        "event=quality_review_outbox_dispatched run_id=%s dispatched=%s",
+        result.run_id,
+        dispatched_quality_reviews,
     )
 
     verdict_counts = _radar_verdict_counts(result)

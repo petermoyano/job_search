@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 
 from sqlalchemy import desc, select
+
+from app.core.config import get_settings
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -10,11 +12,13 @@ from app.models import (
     RadarFeedback,
     RadarOpportunity,
     RadarOpportunityDeletion,
+    RadarQualityReview,
     RadarRun,
     now_utc,
 )
 from app.radar.dedupe import candidate_identity_key
 from app.radar.models import ClassifiedDiscovery, DiscoveryRunResult, SearchProfile
+from app.radar.quality import stage_presented_quality_reviews
 from app.schemas import RadarFeedbackUpsert
 
 
@@ -94,10 +98,13 @@ def persist_discovery_result(
 
     now = now_utc()
     presented_items = {id(item) for item in result.items}
+    presented_pairs: list[tuple[ClassifiedDiscovery, RadarOpportunity]] = []
     for item in [*result.items, *result.excluded_items]:
         presented = id(item) in presented_items
         opportunity = _upsert_opportunity(db, item, now=now, presented=presented)
         item.opportunity_id = opportunity.id
+        if presented:
+            presented_pairs.append((item, opportunity))
         classification = item.classification
         db.add(
             RadarEvaluation(
@@ -120,6 +127,13 @@ def persist_discovery_result(
                 classifier_version=CLASSIFIER_VERSION,
             )
         )
+    staged_quality_reviews = stage_presented_quality_reviews(
+        db,
+        run=run,
+        profile=profile,
+        presented_items=presented_pairs,
+        rubric_version=get_settings().radar_quality_review_rubric_version,
+    )
     LOGGER.info(
         "event=radar_run_staged run_id=%s profile_id=%s connector=%s "
         "presented=%s excluded=%s evaluations=%s",
@@ -129,6 +143,11 @@ def persist_discovery_result(
         len(result.items),
         len(result.excluded_items),
         len(result.items) + len(result.excluded_items),
+    )
+    LOGGER.info(
+        "event=quality_reviews_staged run_id=%s created=%s",
+        run.id,
+        staged_quality_reviews,
     )
     return run
 
@@ -235,6 +254,14 @@ def list_profile_opportunities(
                 RadarFeedback.profile_id == profile_id,
             )
         ).first()
+        quality_review = db.scalars(
+            select(RadarQualityReview)
+            .where(
+                RadarQualityReview.opportunity_id == opportunity.id,
+                RadarQualityReview.profile_id == profile_id,
+            )
+            .order_by(desc(RadarQualityReview.created_at))
+        ).first()
         output.append(
             {
                 "id": opportunity.id,
@@ -265,6 +292,22 @@ def list_profile_opportunities(
                     "classifier_version": evaluation.classifier_version,
                 },
                 "feedback": feedback,
+                "quality_review": (
+                    {
+                        "id": quality_review.id,
+                        "status": quality_review.status,
+                        "verdict": quality_review.verdict,
+                        "quality_score": quality_review.quality_score,
+                        "confidence": quality_review.confidence,
+                        "rationale": quality_review.rationale,
+                        "risks": quality_review.risks,
+                        "evidence": quality_review.evidence,
+                        "rubric_version": quality_review.rubric_version,
+                        "completed_at": quality_review.completed_at,
+                    }
+                    if quality_review is not None
+                    else None
+                ),
             }
         )
         if len(output) >= limit:

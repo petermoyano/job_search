@@ -18,6 +18,8 @@ env:
   WORKER_LAMBDA_FUNCTION: job-search-document-processor
   FRONTEND_ORIGIN: https://job-search-fe.vercel.app
   KNOWLEDGE_SYNC_LAMBDA_FUNCTION: job-search-knowledge-sync
+  QUALITY_REVIEW_WORKER_LAMBDA_FUNCTION: job-search-quality-review-worker
+  QUALITY_REVIEW_DISPATCHER_LAMBDA_FUNCTION: job-search-quality-review-dispatcher
   FRONTEND_PREVIEW_ORIGIN: https://job-search-preview-petermoyanos-projects.vercel.app
 
 jobs:
@@ -80,6 +82,7 @@ jobs:
         run: |
           API_IMAGE_URI="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
           WORKER_IMAGE_URI="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG-worker"
+          QUALITY_REVIEW_IMAGE_URI="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG-quality-review"
 
           docker buildx build \
             --file Dockerfile.lambda \
@@ -100,6 +103,18 @@ jobs:
             --tag "$WORKER_IMAGE_URI" \
             .
           docker push "$WORKER_IMAGE_URI"
+
+          docker buildx build \
+            --file Dockerfile.quality-worker \
+            --platform linux/amd64 \
+            --provenance=false \
+            --pull \
+            --load \
+            --tag "$QUALITY_REVIEW_IMAGE_URI" \
+            .
+          docker push "$QUALITY_REVIEW_IMAGE_URI"
+
+          echo "quality_review_image=$QUALITY_REVIEW_IMAGE_URI" >> "$GITHUB_OUTPUT"
 
           echo "api_image=$API_IMAGE_URI" >> "$GITHUB_OUTPUT"
           echo "worker_image=$WORKER_IMAGE_URI" >> "$GITHUB_OUTPUT"
@@ -126,6 +141,20 @@ jobs:
             --query "{FunctionName:FunctionName,Version:Version,State:State}"
           aws lambda wait function-updated \
             --function-name "$KNOWLEDGE_SYNC_LAMBDA_FUNCTION"
+
+          aws lambda update-function-code \
+            --function-name "$QUALITY_REVIEW_WORKER_LAMBDA_FUNCTION" \
+            --image-uri "${{ steps.build-images.outputs.quality_review_image }}" \
+            --query '{FunctionName:FunctionName,Version:Version,State:State}'
+          aws lambda wait function-updated \
+            --function-name "$QUALITY_REVIEW_WORKER_LAMBDA_FUNCTION"
+
+          aws lambda update-function-code \
+            --function-name "$QUALITY_REVIEW_DISPATCHER_LAMBDA_FUNCTION" \
+            --image-uri "${{ steps.build-images.outputs.quality_review_image }}" \
+            --query '{FunctionName:FunctionName,Version:Version,State:State}'
+          aws lambda wait function-updated \
+            --function-name "$QUALITY_REVIEW_DISPATCHER_LAMBDA_FUNCTION"
 
       - name: Read Function URL
         id: function-url

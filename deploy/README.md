@@ -76,8 +76,8 @@ update to complete.
 CloudFormation also owns the private document-ingestion resources:
 
 - an automatically named S3 bucket with public access blocked, AES-256
-  server-side encryption, bucket-owner-enforced object ownership, versioning,
-  and a short retention policy for old noncurrent versions;
+  server-side encryption, bucket-owner-enforced object ownership, suspended
+  versioning for this early-stage environment, and a short retention policy;
 - least-privilege Lambda access to PUT and inspect only the `documents/*`
   prefix;
 - one generated Secrets Manager client credential for `job-search` and one
@@ -203,3 +203,21 @@ against this Knowledge Base; its authenticated `POST /knowledge/retrieve`
 route derives tenant and source filters from the credential and never returns
 S3 locations. Keep the model and the 1,024 vector dimensions aligned if either
 is changed.
+
+## Radar Quality Review P1
+
+CloudFormation owns an encrypted SQS quality-review queue and retained DLQ, the
+`job-search-quality-review-worker` SQS consumer, and the
+`job-search-quality-review-dispatcher` EventBridge target. The dispatcher
+runs every five minutes to deliver pending database-outbox records; it does not
+keep a Lambda running between invocations.
+
+Only `presented=true` Radar opportunities are staged. The API may enqueue them
+after a successful run, while the dispatcher provides durable retry. The worker
+has only database-parameter read access, queue consume access, and
+`bedrock:InvokeModel` for the configured review model. The dispatcher can only
+read the database parameter and send to this queue.
+
+The deployment workflow builds a third immutable image,
+`<git-sha>-quality-review`, from `Dockerfile.quality-worker`, then updates both
+quality-review functions.

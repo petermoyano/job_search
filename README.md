@@ -579,3 +579,15 @@ A user can paste CV text, define target roles and deal-breakers, paste a job des
 * Add documentation for local setup
 * Add documentation for scoring logic
 * Add documentation for future ingestion sources
+## Shared backend context
+
+This repository serves two frontend applications:
+
+* `job_search_fe`, the Direct Product Job Radar client.
+* `151`, the Crane Intelligence client.
+
+Both applications currently have zero real production users and are being
+developed primarily to learn AWS. Shared API, authentication, persistence, and
+deployment changes must be assessed for both clients. See
+[`docs/architecture.md`](docs/architecture.md) for the current boundaries and
+AWS deployment shape.

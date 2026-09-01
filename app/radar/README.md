@@ -149,6 +149,39 @@ Supported actions are `interested`, `not_relevant`, and `applied`.
 `english_description_or_application`, `duplicate`, `broken_link`, and
 `other`.
 
+
+## Quality Review Worker
+
+Every new result that is persisted with presented=true receives exactly one
+versioned quality review for the configured rubric. Rejects, unverified
+maybes, repeats, and overflow results never receive a review event.
+
+The API writes the review and a matching outbox record in the same database
+transaction. After the Radar run commits, it makes a best-effort delivery of
+pending outbox records to SQS. A second Lambda using
+app.radar.quality.dispatch_handler is scheduled by EventBridge every five
+minutes to retry any undelivered outbox records.
+
+The SQS consumer is app.radar.quality.handler, packaged by
+Dockerfile.quality-worker. Configure its SQS event source with
+ReportBatchItemFailures, a DLQ, and a visibility timeout longer than the Lambda
+timeout. The worker claims a short database lease before invoking Bedrock, so
+duplicate SQS deliveries do not create duplicate model calls.
+
+Required production configuration:
+
+- RADAR_QUALITY_REVIEW_QUEUE_URL
+- RADAR_QUALITY_REVIEW_MODEL_ID
+- RADAR_QUALITY_REVIEW_BEDROCK_REGION (defaults to sa-east-1)
+- database configuration already used by the API and workers
+
+The reviewer is a bounded LangGraph workflow: validate immutable input,
+evaluate with Bedrock, validate the structured result, and persist it. It has
+no browser, database, or external action tools. Its stored result contains
+pending/completed status, up/down verdict, score, confidence, rationale, risks,
+evidence, and rubric version. The history endpoint returns it as
+quality_review on each presented opportunity card.
+
 ## Persistence and Migration
 
 Radar data is stored in:
