@@ -181,11 +181,7 @@ def _response_text(content: Any) -> str:
     if isinstance(content, str):
         text = content
     elif isinstance(content, list):
-        text = "".join(
-            block.get("text", "")
-            for block in content
-            if isinstance(block, dict) and isinstance(block.get("text"), str)
-        )
+        text = "".join(_content_block_text(block) for block in content)
     else:
         text = str(content)
 
@@ -196,3 +192,11 @@ def _response_text(content: Any) -> str:
         if text.startswith("json"):
             text = text[4:].strip()
     return text
+
+
+def _content_block_text(block: Any) -> str:
+    """Read text from both dict and typed LangChain content blocks."""
+    text = (
+        block.get("text") if isinstance(block, dict) else getattr(block, "text", None)
+    )
+    return text if isinstance(text, str) else ""

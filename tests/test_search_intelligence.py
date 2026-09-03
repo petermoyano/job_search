@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from app.radar.search_intelligence import (
     SearchRunReview,
     SearchRunReviewEvidence,
@@ -68,4 +70,23 @@ def test_search_run_review_response_bounds_lists_and_normalizes_queries() -> Non
         )
     )
     assert len(review.recommendations) == 4
+    assert review.evidence[0].source == "profile"
+
+
+def test_search_run_review_response_parses_typed_content_blocks() -> None:
+    review = _parse_search_run_review_response(
+        [
+            SimpleNamespace(
+                text=(
+                    '{"alignment_score":82,"assessment":"strong",'
+                    '"summary":"The configured strategy aligns with the candidate profile.",'
+                    '"strengths":[],"gaps":[],"recommendations":["one"],'
+                    '"evidence":[{"source":"profile",'
+                    '"detail":"The configured query targets the candidate profile."}]}'
+                )
+            )
+        ]
+    )
+
+    assert review.alignment_score == 82
     assert review.evidence[0].source == "profile"
