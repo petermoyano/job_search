@@ -32,6 +32,7 @@ def run_discovery(
     limit: int = 50,
     suppressed_keys: set[str] | None = None,
     hydrate: bool = True,
+    time_budget_seconds: float | None = None,
 ) -> DiscoveryRunResult:
     suppressed = suppressed_keys or set()
     if profile.ordered_sources and not _is_sample_run(connectors):
@@ -41,6 +42,7 @@ def run_discovery(
             limit=limit,
             suppressed_keys=suppressed,
             hydrate=hydrate,
+            time_budget_seconds=time_budget_seconds,
         )
     return _run_connector_discovery(
         profile=profile,
@@ -62,6 +64,7 @@ def _run_ordered_discovery(
     limit: int,
     suppressed_keys: set[str],
     hydrate: bool,
+    time_budget_seconds: float | None,
 ) -> DiscoveryRunResult:
     raw_total = 0
     all_classified: list[ClassifiedDiscovery] = []
@@ -87,9 +90,30 @@ def _run_ordered_discovery(
         key=lambda item: item.order,
     )
     completed_sources = 0
+    discovery_started_at = perf_counter()
 
     for source_index, source in enumerate(ordered_sources):
         if len(displayed) >= target:
+            break
+        if (
+            time_budget_seconds is not None
+            and perf_counter() - discovery_started_at >= time_budget_seconds
+        ):
+            if summaries:
+                summaries[-1] = summaries[-1].model_copy(
+                    update={
+                        "continued_to_next": False,
+                        "stop_reason": "time_budget_exhausted",
+                    }
+                )
+            LOGGER.warning(
+                "event=radar_discovery_time_budget_exhausted profile_id=%s "
+                "sources_consulted=%s source_count=%s budget_seconds=%s",
+                profile.id,
+                len(summaries),
+                len(ordered_sources),
+                time_budget_seconds,
+            )
             break
         source_limit = min(source.max_results, limit)
         LOGGER.info(

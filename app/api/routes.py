@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.config import get_settings
 from app.db.session import get_db
 from app.graph.workflow import run_job_analysis_workflow
 from app.radar.connectors.himalayas import HimalayasConnector
@@ -155,6 +156,7 @@ def run_radar(
             connectors=connectors,
             limit=payload.limit,
             suppressed_keys=suppressed_keys,
+            time_budget_seconds=get_settings().radar_discovery_time_budget_seconds,
         )
     except RuntimeError as exc:
         LOGGER.exception(

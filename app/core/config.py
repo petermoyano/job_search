@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     database_url_ssm_parameter: str | None = Field(default=None, repr=False)
     openai_api_key: str | None = Field(default=None, repr=False)
     tavily_api_key: str | None = Field(default=None, repr=False)
+    radar_discovery_time_budget_seconds: int = Field(default=210, ge=30, le=270)
     llm_model: str = "gpt-4.1-mini"
     initialize_database: bool = True
     aws_region: str = "sa-east-1"

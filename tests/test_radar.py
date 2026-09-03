@@ -462,6 +462,31 @@ def test_ordered_discovery_continues_when_first_source_has_too_few() -> None:
     assert result.source_summaries[1].stop_reason == "target_reached"
 
 
+def test_ordered_discovery_returns_partial_results_before_its_time_budget(
+    monkeypatch,
+) -> None:
+    connector = _OrderedFakeConnector(
+        {
+            "linkedin": [_valid_remote_raw(1)],
+            "computrabajo_ar": [_valid_remote_raw(2)],
+        }
+    )
+    timestamps = iter([0, 0, 0, 0.5, 2])
+    monkeypatch.setattr("app.radar.discovery.perf_counter", lambda: next(timestamps))
+
+    result = run_discovery(
+        profile=_ordered_test_profile(max_results=3),
+        connectors=[connector],
+        limit=25,
+        hydrate=False,
+        time_budget_seconds=1,
+    )
+
+    assert connector.calls == ["linkedin"]
+    assert len(result.items) == 1
+    assert result.source_summaries[-1].stop_reason == "time_budget_exhausted"
+
+
 def test_canonicalize_url_removes_tracking_params() -> None:
     url = "https://Jobs.Lever.co/acme/123/?utm_source=linkedin&foo=bar#apply"
 
