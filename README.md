@@ -1,6 +1,17 @@
 # Direct Product Job Radar
 
-## Overview
+## Current scope
+
+Opportunity discovery and filtering use POST /radar/runs. The separate manual
+job-recommendation workflow was retired; see [details](docs/v0-backend.md).
+Profiles, CV extraction, Radar discovery and optional Radar reviews remain.
+
+The original product brief below is historical and includes retired features
+and earlier plans. It does not describe the current API.
+
+## Original product brief (historical)
+
+### Overview
 
 **Direct Product Job Radar** is an AI-powered job intelligence system for software engineers, AI engineers, and technical professionals who want to identify real direct product opportunities while avoiding recruiter-heavy, outsourced, third-party, or staff augmentation processes.
 
