@@ -5,6 +5,9 @@ import json
 import logging
 from typing import Sequence
 
+from app.radar.connectors.serper import SerperConnector
+from app.radar.connectors.serpapi_google_jobs import SerpApiGoogleJobsConnector
+from app.radar.connectors.jsearch import JSearchConnector
 from app.radar.connectors.base import DiscoveryConnector
 from app.radar.connectors.greenhouse import GreenhouseConnector
 from app.radar.connectors.lever import LeverConnector
@@ -18,7 +21,9 @@ LOGGER = logging.getLogger(__name__)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Run the job radar discovery pipeline.")
+    parser = argparse.ArgumentParser(
+        description="Run the job radar discovery pipeline."
+    )
     parser.add_argument(
         "--profile",
         default="peter-latam-remote-ai-fullstack-product",
@@ -28,7 +33,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--source",
         action="append",
-        choices=["sample", "tavily", "greenhouse", "lever"],
+        choices=[
+            "sample",
+            "tavily",
+            "greenhouse",
+            "lever",
+            "serper",
+            "serpapi_google_jobs",
+            "jsearch",
+        ],
         default=None,
         help="Discovery source. Can be passed more than once.",
     )
@@ -104,6 +117,12 @@ def _build_connectors(
             connectors.append(SampleConnector())
         elif source == "tavily":
             connectors.append(TavilyConnector())
+        elif source == "serper":
+            connectors.append(SerperConnector())
+        elif source == "serpapi_google_jobs":
+            connectors.append(SerpApiGoogleJobsConnector())
+        elif source == "jsearch":
+            connectors.append(JSearchConnector())
         elif source == "greenhouse":
             if not greenhouse_boards:
                 raise ValueError("--greenhouse-board is required for source=greenhouse")
@@ -143,4 +162,3 @@ def _print_summary(result) -> None:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

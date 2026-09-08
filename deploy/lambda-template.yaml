@@ -88,9 +88,13 @@ Parameters:
   CraneIntelligenceTenantId:
     Type: String
     Default: creactis
+  # Retained for rollback until Tavily aggregate live-search validation succeeds.
   TavilySecretId:
     Type: String
     Default: job-search/tavily-api-key
+  ExternalApiSecretName:
+    Type: String
+    Default: job-search/external-api-keys
   DatabaseUrlParameterName:
     Type: String
     Default: /job-search/database-url
@@ -470,6 +474,13 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
+        - PolicyName: ReadExternalApiKeys
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${ExternalApiSecretName}-??????'
         - PolicyName: ReadDatabaseUrlParameter
           PolicyDocument:
             Version: "2012-10-17"
@@ -957,6 +968,7 @@ Resources:
           INITIALIZE_DATABASE: "false"
           CORS_ORIGINS: !Sub '["http://localhost:3000","http://127.0.0.1:3000","${FrontendOrigin}"]'
           CORS_ORIGIN_REGEX: !Ref FrontendOriginRegex
+          JOB_SEARCH_EXTERNAL_API_SECRET_NAME: !Ref ExternalApiSecretName
           TAVILY_API_KEY: !Sub '{{resolve:secretsmanager:${TavilySecretId}:SecretString}}'
           DOCUMENTS_S3_BUCKET: !Ref DocumentBucket
           DOCUMENTS_MAX_FILE_SIZE_BYTES: !Ref DocumentsMaxFileSizeBytes

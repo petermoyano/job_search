@@ -7,6 +7,9 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.db.session import get_db
+from app.radar.connectors.serper import SerperConnector
+from app.radar.connectors.serpapi_google_jobs import SerpApiGoogleJobsConnector
+from app.radar.connectors.jsearch import JSearchConnector
 from app.radar.connectors.himalayas import HimalayasConnector
 from app.radar.connectors.jobspresso import JobspressoConnector
 from app.radar.connectors.remote_ok import RemoteOkConnector
@@ -438,6 +441,9 @@ def _radar_connectors_for(source: str):
             JobspressoConnector(),
             RandstadArgentinaConnector(),
             TavilyConnector(),
+            SerperConnector(),
+            SerpApiGoogleJobsConnector(),
+            JSearchConnector(),
         ]
     raise HTTPException(status_code=400, detail=f"Unsupported radar source: {source}")
 

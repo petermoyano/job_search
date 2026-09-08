@@ -89,6 +89,25 @@ def _run_ordered_discovery(
         ),
         key=lambda item: item.order,
     )
+    # Supplement saved profiles without rewriting their persisted source lists.
+    # Existing priority, target, time budget and classification still apply.
+    registered_ids = {source.id for source in profile.ordered_sources}
+    next_order = max((source.order for source in ordered_sources), default=0)
+    for supplemental_connector in connectors:
+        if (
+            getattr(supplemental_connector, "supplemental", False)
+            and getattr(supplemental_connector, "enabled", False)
+            and supplemental_connector.name not in registered_ids
+        ):
+            next_order += 1
+            ordered_sources.append(
+                SearchSource(
+                    id=supplemental_connector.name,
+                    label=supplemental_connector.name,
+                    order=next_order,
+                    max_results=min(limit, 10) if limit > 0 else 1,
+                )
+            )
     completed_sources = 0
     discovery_started_at = perf_counter()
 
@@ -328,7 +347,11 @@ def _connector_for_source(
     )
     if fallback is not None:
         return fallback
-    return connectors[0] if len(connectors) == 1 else None
+    return (
+        connectors[0]
+        if len(connectors) == 1 and not getattr(connectors[0], "supplemental", False)
+        else None
+    )
 
 
 def _provider_error_code(exc: RuntimeError) -> str:

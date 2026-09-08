@@ -1,4 +1,6 @@
 from functools import lru_cache
+import json
+import logging
 from typing import Literal
 
 from pydantic import Field, model_validator
@@ -13,6 +15,47 @@ def _get_ssm_parameter(name: str) -> str:
     if not isinstance(value, str) or not value:
         raise RuntimeError(f"SSM parameter {name!r} did not contain a value")
     return value
+
+
+EXTERNAL_API_KEYS = (
+    "TAVILY_API_KEY",
+    "SERPER_API_KEY",
+    "SERPAPI_API_KEY",
+    "RAPIDAPI_KEY",
+)
+LOGGER = logging.getLogger(__name__)
+
+
+@lru_cache
+def _get_external_api_keys(name: str, region: str) -> dict[str, str]:
+    import boto3  # type: ignore[import-untyped]
+    from botocore.config import Config  # type: ignore[import-untyped]
+    from botocore.exceptions import BotoCoreError, ClientError  # type: ignore[import-untyped]
+
+    try:
+        client = boto3.client(
+            "secretsmanager",
+            region_name=region,
+            config=Config(
+                connect_timeout=3, read_timeout=5, retries={"total_max_attempts": 2}
+            ),
+        )
+        response = client.get_secret_value(SecretId=name)
+    except (BotoCoreError, ClientError):
+        LOGGER.warning("event=external_api_keys_unavailable using_environment=true")
+        return {}
+    try:
+        payload = json.loads(response.get("SecretString", ""))
+        if not isinstance(payload, dict):
+            raise ValueError
+    except (ValueError, TypeError):
+        LOGGER.warning("event=external_api_keys_invalid_json using_environment=true")
+        return {}
+    return {
+        key: value.strip()
+        for key in EXTERNAL_API_KEYS
+        if isinstance(value := payload.get(key), str) and value.strip()
+    }
 
 
 def _normalize_database_url(value: str) -> str:
@@ -31,6 +74,10 @@ class Settings(BaseSettings):
     database_url_ssm_parameter: str | None = Field(default=None, repr=False)
     openai_api_key: str | None = Field(default=None, repr=False)
     tavily_api_key: str | None = Field(default=None, repr=False)
+    serper_api_key: str | None = Field(default=None, repr=False)
+    serpapi_api_key: str | None = Field(default=None, repr=False)
+    rapidapi_key: str | None = Field(default=None, repr=False)
+    job_search_external_api_secret_name: str | None = None
     radar_discovery_time_budget_seconds: int = Field(default=210, ge=30, le=270)
     llm_model: str = "gpt-4.1-mini"
     initialize_database: bool = True
@@ -89,6 +136,13 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def resolve_database_url(self) -> "Settings":
+        if self.job_search_external_api_secret_name:
+            credentials = _get_external_api_keys(
+                self.job_search_external_api_secret_name, self.aws_region
+            )
+            for key, value in credentials.items():
+                if self.app_env == "production" or not getattr(self, key.lower()):
+                    setattr(self, key.lower(), value)
         database_url = self.database_url
         if self.database_url_ssm_parameter:
             database_url = _get_ssm_parameter(self.database_url_ssm_parameter)

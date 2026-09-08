@@ -12,6 +12,9 @@ from app.documents.resume_schemas import ResumeProfileDraftV1
 class DiscoverySourceKind(StrEnum):
     sample = "sample"
     tavily = "tavily"
+    serper = "serper"
+    serpapi_google_jobs = "serpapi_google_jobs"
+    jsearch = "jsearch"
     greenhouse = "greenhouse"
     lever = "lever"
     himalayas = "himalayas"

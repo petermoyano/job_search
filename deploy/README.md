@@ -16,9 +16,11 @@ parallel Lambda executions. AWS requires all 10 slots to remain unreserved at
 this quota, so a function-level reserved concurrency of one cannot be
 configured unless the account quota is raised above its current value.
 
-`TAVILY_API_KEY` remains in AWS Secrets Manager. CloudFormation resolves the
-secret into the Lambda environment during deployment; secret values are never
-stored in this repository.
+External search-provider credentials share the JSON secret
+`job-search/external-api-keys`. The API loads it once at startup via
+`JOB_SEARCH_EXTERNAL_API_SECRET_NAME`; CloudFormation stores only that name and
+grants scoped read access. Missing provider keys disable optional connectors.
+See [configuration and migration](../docs/external-job-search.md).
 
 The retired ECS Express configuration and verified shutdown record are under
 `deploy/archive/`. `deploy/ecs-task-definition.json` is retained only as a
