@@ -2,6 +2,16 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: On-demand Lambda Function URL deployment for the job-search FastAPI backend.
 
 Parameters:
+  EnableCraneKnowledgeSync:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Opt in to five-minute Crane RAG reconciliation; polling can prevent Neon from suspending.
+  EnableRadarQualityReview:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Opt in to Radar quality-review dispatch polling and SQS processing.
   ImageUri:
     Type: String
     Description: Immutable ECR image URI for the Lambda-compatible backend image.
@@ -99,6 +109,10 @@ Parameters:
     Type: String
     Default: /job-search/database-url
     Description: Name of the SSM SecureString containing the pooled PostgreSQL URL.
+
+Conditions:
+  CraneKnowledgeSyncEnabled: !Equals [!Ref EnableCraneKnowledgeSync, "true"]
+  RadarQualityReviewEnabled: !Equals [!Ref EnableRadarQualityReview, "true"]
 
 Resources:
   BackendLogGroup:
@@ -826,7 +840,7 @@ Resources:
     Properties:
       Description: Reconciles pending Crane Intelligence Knowledge Base ingestion jobs.
       ScheduleExpression: rate(5 minutes)
-      State: ENABLED
+      State: !If [CraneKnowledgeSyncEnabled, ENABLED, DISABLED]
       Targets:
         - Arn: !GetAtt KnowledgeSyncFunction.Arn
           Id: KnowledgeSyncLambda
@@ -872,7 +886,7 @@ Resources:
     Properties:
       FunctionName: !Ref QualityReviewWorkerFunction
       EventSourceArn: !GetAtt QualityReviewQueue.Arn
-      Enabled: true
+      Enabled: !If [RadarQualityReviewEnabled, true, false]
       BatchSize: 5
       MaximumBatchingWindowInSeconds: 0
       FunctionResponseTypes:
@@ -912,7 +926,7 @@ Resources:
     Properties:
       Description: Retries pending Radar quality-review outbox delivery.
       ScheduleExpression: rate(5 minutes)
-      State: ENABLED
+      State: !If [RadarQualityReviewEnabled, ENABLED, DISABLED]
       Targets:
         - Arn: !GetAtt QualityReviewDispatcherFunction.Arn
           Id: QualityReviewDispatcherLambda

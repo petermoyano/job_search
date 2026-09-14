@@ -59,6 +59,38 @@ not authentication. Before adding multiple users or valuable paid operations,
 place an authenticated API layer in front of the function or proxy requests
 through an authenticated server-side frontend route.
 
+## Optional background processing (default off)
+
+| CloudFormation parameter | Default | Controls |
+| --- | --- | --- |
+| EnableCraneKnowledgeSync | false | Crane knowledge-sync EventBridge schedule |
+| EnableRadarQualityReview | false | Radar outbox EventBridge schedule and quality-review SQS event source |
+
+Both schedules poll PostgreSQL every five minutes when enabled. This can prevent
+Neon from reaching its five-minute idle timeout even with no users. Keep both
+parameters false during development unless actively testing these features.
+
+For infrastructure deployments, include EnableCraneKnowledgeSync=false and
+EnableRadarQualityReview=false alongside the existing image and other stack
+parameter overrides. To resume either feature, explicitly set its parameter to
+true in a reviewed CloudFormation update. To pause it again, explicitly set it
+to false: defaults do not reset previously enabled stack parameters.
+
+GitHub Actions only updates Lambda images and does not change these switches
+or re-enable the triggers.
+
+Disabling the switches preserves the functions, queues, database records, and
+Knowledge Base. Crane uploads can still start ingestion, but scheduled retries
+and promotion to RAG_INDEXED are paused. Radar can still stage and enqueue
+reviews, but their dispatch retries and SQS processing are paused; ordinary
+search remains available. SQS message retention still applies, so review queued
+and pending work before resuming after a long pause. These switches pause the
+automatic triggers, not explicitly requested manual Lambda invocations.
+
+On September 14, 2026, both deployed schedules and the quality-review SQS trigger
+were disabled directly in AWS. Neon then automatically suspended. This template
+encodes that pause for subsequent infrastructure deployments.
+
 ## Monitoring and Rollback
 
 Use Lambda metrics and `/aws/lambda/job-search-api` logs to inspect invocations,
@@ -192,8 +224,8 @@ the document bucket nor the vector bucket is public. The resources are retained
 if the stack is removed to prevent accidental loss of indexed content.
 
 Deploying this template creates the knowledge base, source configuration, and
-the `job-search-knowledge-sync` Lambda scheduled by EventBridge every five
-minutes. The document worker writes each validated Crane PDF sidecar and
+the `job-search-knowledge-sync` Lambda. Its five-minute EventBridge schedule
+is disabled unless EnableCraneKnowledgeSync=true. The document worker writes each validated Crane PDF sidecar and
 explicitly requests an idempotent source sync; it can write only that source
 prefix and start only this Knowledge Base. The scheduled Lambda can read only
 the database URL parameter and start or inspect jobs for this Knowledge Base.
@@ -211,8 +243,9 @@ is changed.
 CloudFormation owns an encrypted SQS quality-review queue and retained DLQ, the
 `job-search-quality-review-worker` SQS consumer, and the
 `job-search-quality-review-dispatcher` EventBridge target. The dispatcher
-runs every five minutes to deliver pending database-outbox records; it does not
-keep a Lambda running between invocations.
+runs every five minutes only when EnableRadarQualityReview=true; that switch
+also enables the SQS consumer. Both triggers are disabled by default. Although
+Lambda stops between invocations, polling can keep Neon compute active.
 
 Only `presented=true` Radar opportunities are staged. The API may enqueue them
 after a successful run, while the dispatcher provides durable retry. The worker

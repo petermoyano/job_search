@@ -38,13 +38,20 @@ document upload completion
   -> SQS document-processing worker
   -> S3 and Bedrock
 
-EventBridge (every five minutes)
+EventBridge (opt-in; every five minutes when enabled)
   -> Crane knowledge-sync worker
 ```
 
 The quality-review worker follows the same asynchronous pattern: the API writes
 a durable outbox record, SQS delivers a small review identifier, and a worker
 loads the immutable snapshot from PostgreSQL before calling Bedrock.
+
+Crane knowledge-sync polling and Radar quality-review dispatch/consumption are
+disabled by default through separate CloudFormation opt-in parameters. This
+allows Neon to suspend while the applications are unused. Disabling these
+triggers pauses RAG reconciliation and quality reviews without disabling the
+shared API or document-processing worker. See the optional background processing
+section in deploy/README.md for enablement and backlog behavior.
 
 ## Change checklist
 
